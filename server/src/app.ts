@@ -135,13 +135,12 @@ export async function buildApp(config: Config, opts: { storage?: Storage; logger
   if (fs.existsSync(config.webDist)) {
     await app.register(fastifyStatic, {
       root: config.webDist,
-      wildcard: false,
       setHeaders: (res, filePath) => {
         if (filePath.includes(`${"/"}assets${"/"}`)) res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
       },
     });
     app.setNotFoundHandler((req, reply) => {
-      if (req.url.startsWith("/api/")) return reply.status(404).send({ error: "Not found" });
+      if (req.url.startsWith("/api/") || req.url.startsWith("/assets/")) return reply.status(404).send({ error: "Not found" });
       return reply.sendFile("index.html");
     });
   }

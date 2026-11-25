@@ -1,0 +1,117 @@
+/*
+ * Porcelain gallery design tokens (#19).
+ * Light: a white gallery under a skylight. Dark: the same room after hours,
+ * each shelf under its own warm spotlight. No textures, only colour, gradient and shadow.
+ */
+:root {
+  color-scheme: light;
+
+  /* Surfaces */
+  --wall: #f6f5f2;
+  --wall-top: #fdfcfa;
+  --surface: #fbfaf8;
+  --surface-raised: #ffffff;
+  --surface-inset: #efede9;
+  --hairline: rgba(30, 32, 38, 0.09);
+  --hairline-strong: rgba(30, 32, 38, 0.16);
+
+  /* Ink */
+  --ink: #17191e;
+  --ink-soft: #4a4d55;
+  --ink-faint: #8a8d94;
+  --accent: #1d2b44;
+  --accent-ink: #ffffff;
+
+  /* Light from above */
+  --skylight: radial-gradient(120% 70% at 50% -10%, rgba(255, 255, 255, 1) 0%, rgba(255, 255, 255, 0) 60%);
+  --highlight-top: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --shadow-1: 0 1px 2px rgba(25, 28, 35, 0.06), 0 2px 6px rgba(25, 28, 35, 0.05);
+  --shadow-2: 0 2px 4px rgba(25, 28, 35, 0.06), 0 10px 24px rgba(25, 28, 35, 0.08);
+  --shadow-3: 0 6px 12px rgba(25, 28, 35, 0.08), 0 24px 48px rgba(25, 28, 35, 0.12);
+
+  /* Shelf ledge */
+  --ledge-top: #ffffff;
+  --ledge-face: linear-gradient(to bottom, #f3f1ed, #e7e4de);
+  --ledge-shadow: 0 1px 0 rgba(25, 28, 35, 0.06), 0 18px 30px -10px rgba(25, 28, 35, 0.28);
+  --spotlight: radial-gradient(60% 90% at 50% 0%, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0) 70%);
+
+  /* Reading progress light (#9): unread books are dimmed, light rises from the bottom */
+  --dim: rgba(246, 245, 242, 0.62);
+  --dim-edge: rgba(255, 248, 230, 0.55);
+
+  /* Shape & type */
+  --radius-s: 6px;
+  --radius-m: 10px;
+  --radius-l: 16px;
+  --radius-pill: 999px;
+  --font-serif: "Iowan Old Style", "Charter", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+
+  /* Motion */
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --fast: 160ms;
+  --med: 260ms;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --wall: #15171b;
+    --wall-top: #1d2026;
+    --surface: #1a1c21;
+    --surface-raised: #23262c;
+    --surface-inset: #121418;
+    --hairline: rgba(235, 238, 245, 0.08);
+    --hairline-strong: rgba(235, 238, 245, 0.16);
+    --ink: #eceae6;
+    --ink-soft: #b4b2ad;
+    --ink-faint: #7c7b78;
+    --accent: #e9e4d8;
+    --accent-ink: #15171b;
+    --skylight: radial-gradient(120% 70% at 50% -10%, rgba(255, 240, 215, 0.07) 0%, rgba(255, 240, 215, 0) 60%);
+    --highlight-top: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4), 0 2px 6px rgba(0, 0, 0, 0.3);
+    --shadow-2: 0 2px 4px rgba(0, 0, 0, 0.4), 0 10px 24px rgba(0, 0, 0, 0.4);
+    --shadow-3: 0 6px 12px rgba(0, 0, 0, 0.45), 0 24px 48px rgba(0, 0, 0, 0.55);
+    --ledge-top: #3a3d44;
+    --ledge-face: linear-gradient(to bottom, #2a2d33, #1e2025);
+    --ledge-shadow: 0 18px 30px -12px rgba(0, 0, 0, 0.7);
+    --spotlight: radial-gradient(55% 95% at 50% 0%, rgba(255, 226, 180, 0.13), rgba(255, 226, 180, 0) 70%);
+    --dim: rgba(14, 15, 18, 0.66);
+    --dim-edge: rgba(255, 214, 150, 0.45);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --wall: #15171b;
+  --wall-top: #1d2026;
+  --surface: #1a1c21;
+  --surface-raised: #23262c;
+  --surface-inset: #121418;
+  --hairline: rgba(235, 238, 245, 0.08);
+  --hairline-strong: rgba(235, 238, 245, 0.16);
+  --ink: #eceae6;
+  --ink-soft: #b4b2ad;
+  --ink-faint: #7c7b78;
+  --accent: #e9e4d8;
+  --accent-ink: #15171b;
+  --skylight: radial-gradient(120% 70% at 50% -10%, rgba(255, 240, 215, 0.07) 0%, rgba(255, 240, 215, 0) 60%);
+  --highlight-top: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4), 0 2px 6px rgba(0, 0, 0, 0.3);
+  --shadow-2: 0 2px 4px rgba(0, 0, 0, 0.4), 0 10px 24px rgba(0, 0, 0, 0.4);
+  --shadow-3: 0 6px 12px rgba(0, 0, 0, 0.45), 0 24px 48px rgba(0, 0, 0, 0.55);
+  --ledge-top: #3a3d44;
+  --ledge-face: linear-gradient(to bottom, #2a2d33, #1e2025);
+  --ledge-shadow: 0 18px 30px -12px rgba(0, 0, 0, 0.7);
+  --spotlight: radial-gradient(55% 95% at 50% 0%, rgba(255, 226, 180, 0.13), rgba(255, 226, 180, 0) 70%);
+  --dim: rgba(14, 15, 18, 0.66);
+  --dim-edge: rgba(255, 214, 150, 0.45);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --fast: 0ms;
+    --med: 0ms;
+  }
+}
