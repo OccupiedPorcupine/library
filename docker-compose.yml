@@ -1,0 +1,19 @@
+services:
+  library:
+    build: .
+    image: library:latest
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATA_DIR: /data
+      LOCAL_STORAGE_PATH: /books
+    volumes:
+      # App database and cache. Keep on the VM's disk (SQLite dislikes network filesystems).
+      - ./data:/data
+      # Book files: point this at the NAS share mounted on the VM, e.g. /mnt/nas/books.
+      - ${BOOKS_PATH:-./data/books}:/books
+    # Bound to localhost only: expose it on the tailnet with `tailscale serve` (see docs/deploy.md).
+    ports:
+      - "127.0.0.1:8080:8080"
