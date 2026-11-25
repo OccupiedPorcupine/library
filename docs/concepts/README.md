@@ -9,4 +9,4 @@ Early layout concepts for the library. The layout is the reference, especially t
 
 Book titles and covers in these images are placeholders.
 
-Related issues: #9 (bookshelf view), #19 (design system), #21 (performance budget).
+Related issues: #9 (bookshelf view), #19 (design system), [performance budget](../performance.md).
