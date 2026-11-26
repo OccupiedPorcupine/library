@@ -180,6 +180,15 @@ export function Shelf3D({ index, id, name, books }: Props) {
     }
   }, [loop, n]);
 
+  // Bring a book that has just started uploading to the front.
+  const movingId = books.find((b) => b.transfer !== undefined)?.id;
+  useEffect(() => {
+    if (!movingId) return;
+    const i = books.findIndex((b) => b.id === movingId);
+    goTo(target.current - mod(target.current, n) + i);
+    // Only when a new upload appears, not on every progress tick.
+  }, [movingId]);
+
   // Re-lay out whenever the mounted set or geometry changes.
   useLayoutEffect(layout, [layout, from, to]);
   useEffect(() => () => cancelAnimationFrame(raf.current), []);
@@ -236,7 +245,8 @@ export function Shelf3D({ index, id, name, books }: Props) {
     const el = (e.target as HTMLElement).closest<HTMLElement>(".tape");
     const i = el ? Number(el.dataset.i) : NaN;
     if (Number.isNaN(i)) return;
-    if (i === target.current && Math.abs(pos.current - i) < 0.05) open(books[mod(i, n)]!);
+    const b = books[mod(i, n)]!;
+    if (i === target.current && Math.abs(pos.current - i) < 0.05) b.transfer === undefined && open(b);
     else goTo(i);
   };
 
@@ -269,7 +279,8 @@ export function Shelf3D({ index, id, name, books }: Props) {
     const start = target.current - mod(target.current, n);
     if (e.key === "Home") (goTo(start), e.preventDefault());
     if (e.key === "End") (goTo(start + n - 1), e.preventDefault());
-    if (e.key === "Enter" && n) open(books[mod(target.current, n)]!);
+    const b = n ? books[mod(target.current, n)] : undefined;
+    if (e.key === "Enter" && b && b.transfer === undefined) open(b);
   };
 
   // Arrow keys also browse the shelf in the middle of the screen, without focusing it first.
@@ -300,7 +311,8 @@ export function Shelf3D({ index, id, name, books }: Props) {
   };
 
   const current = books[focus];
-  const pct = current ? Math.round(current.progress * 100) : 0;
+  const moving = current?.transfer !== undefined;
+  const pct = current ? Math.round((moving ? current.transfer! : current.progress) * 100) : 0;
   const num = String(index + 1).padStart(2, "0");
 
   return (
@@ -353,17 +365,23 @@ export function Shelf3D({ index, id, name, books }: Props) {
             </span>
             <h3 className="caption__title">{current.title}</h3>
             <span className="caption__progress">
-              <span className="meter" style={{ "--p": current.finishedAt ? 1 : current.progress } as CSSProperties} />
-              {current.finishedAt ? "Finished" : pct ? `${pct}% read` : "Not started"}
+              <span className="meter" style={{ "--p": moving ? current.transfer : current.finishedAt ? 1 : current.progress } as CSSProperties} />
+              {moving ? (pct < 100 ? `Uploading ${pct}%` : "Adding to library…") : current.finishedAt ? "Finished" : pct ? `${pct}% read` : "Not started"}
             </span>
           </div>
           <div className="caption__nav">
             <button type="button" className="round-btn" onClick={() => goTo(target.current - 1)} disabled={!loop && focus <= 0} aria-label="Previous book">
               <Arrow dir="left" />
             </button>
-            <a className="btn btn--primary" href={api.fileUrl(current.id)} target="_blank" rel="noreferrer">
-              Open
-            </a>
+            {moving ? (
+              <span className="btn btn--primary is-disabled" aria-disabled>
+                Open
+              </span>
+            ) : (
+              <a className="btn btn--primary" href={api.fileUrl(current.id)} target="_blank" rel="noreferrer">
+                Open
+              </a>
+            )}
             <button type="button" className="round-btn" onClick={() => goTo(target.current + 1)} disabled={!loop && focus >= n - 1} aria-label="Next book">
               <Arrow dir="right" />
             </button>
