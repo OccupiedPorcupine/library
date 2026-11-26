@@ -168,3 +168,28 @@ test("spines take their colour from the cover", async () => {
     await app.close();
   }
 });
+
+test("moving books between shelves and reordering shelves", async () => {
+  const { app, library } = await buildApp(testConfig(), { logger: false });
+  try {
+    const a = library.createShelf("A");
+    const b = library.createShelf("B");
+    const { book } = await library.addBook("x.epub", await epub("Mover", "Me"), a.id);
+    let r = await app.inject({ method: "POST", url: "/api/books/move", payload: { bookIds: [book.id], to: b.id, from: a.id } });
+    assert.equal(r.statusCode, 200);
+    assert.deepEqual(library.getDetail(book.id).shelfIds, [b.id]);
+    // Copy: no "from".
+    await app.inject({ method: "POST", url: "/api/books/move", payload: { bookIds: [book.id], to: a.id } });
+    assert.deepEqual(library.getDetail(book.id).shelfIds.sort(), [a.id, b.id].sort());
+    // Take off a shelf.
+    await app.inject({ method: "POST", url: "/api/books/move", payload: { bookIds: [book.id], to: null, from: b.id } });
+    assert.deepEqual(library.getDetail(book.id).shelfIds, [a.id]);
+    r = await app.inject({ method: "POST", url: "/api/books/move", payload: { bookIds: [book.id], to: "nope" } });
+    assert.equal(r.statusCode, 404);
+
+    await app.inject({ method: "PUT", url: "/api/shelves/order", payload: { ids: [b.id, a.id] } });
+    assert.deepEqual(library.overview().shelves.map((s) => s.name), ["B", "A"]);
+  } finally {
+    await app.close();
+  }
+});
