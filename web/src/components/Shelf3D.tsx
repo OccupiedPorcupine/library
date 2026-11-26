@@ -22,6 +22,7 @@ function initialIndex(books: Book[]): number {
 
 const smooth = (t: number) => t * t * (3 - 2 * t);
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+const mod = (a: number, m: number) => ((a % m) + m) % m;
 
 /**
  * One themed shelf. Books stand as 3D boxes showing their spines; the focused book
@@ -34,16 +35,21 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
  */
 export function Shelf3D({ index, id, name, books }: Props) {
   const stageRef = useRef<HTMLDivElement>(null);
+  const booksRef = useRef<HTMLDivElement>(null);
   const cursorRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 1000, h: 300 });
-  const [focus, setFocus] = useState(() => initialIndex(books));
+  // "slot" is an unbounded position along the shelf; on long shelves it wraps round.
+  const [slot, setSlot] = useState(() => initialIndex(books));
 
   const n = books.length;
-  const pos = useRef(focus);
-  const target = useRef(focus);
+  const pos = useRef(slot);
+  const target = useRef(slot);
   const raf = useRef(0);
   const last = useRef(0);
-  const drag = useRef<{ x: number; pos: number; t: number; v: number; moved: boolean; id: number } | null>(null);
+  const drag = useRef<{ x: number; y: number; lx: number; lt: number; pos: number; v: number; axis: "" | "h" | "v"; id: number } | null>(
+    null,
+  );
+  const wheeling = useRef(false);
   const wheelTimer = useRef(0);
 
   // Per-book shape: varied spine widths and heights, stable per book.
@@ -67,39 +73,49 @@ export function Shelf3D({ index, id, name, books }: Props) {
   }, [geo]);
 
   const dd = Math.round(size.h * 0.68); // cover width = depth of the box
-  const avgStep = n > 1 ? centres[n - 1]! / (n - 1) : 40;
+  // One full lap of the shelf, used when it wraps round.
+  const lap = n ? centres[n - 1]! + geo[n - 1]!.ws / 2 + GAP + geo[0]!.ws / 2 : 0;
+  const avgStep = n ? lap / n : 40;
+  // Wrap round endlessly, like a carousel, once there are enough books to fill the room.
+  const loop = n > 1 && lap > size.w + dd;
+  const focus = n ? mod(slot, n) : 0;
 
+  /** Centre of the book in (unbounded) slot i, in px. */
+  const centreOf = useCallback(
+    (i: number) => {
+      if (loop) return Math.floor(i / n) * lap + centres[mod(i, n)]!;
+      // Past either end, keep sliding at the average spacing (rubber band).
+      return i < 0 ? i * avgStep : i > n - 1 ? centres[n - 1]! + (i - n + 1) * avgStep : centres[i]!;
+    },
+    [loop, n, lap, centres, avgStep],
+  );
   const centreAt = useCallback(
     (p: number) => {
-      if (!n) return 0;
-      const lo = clamp(Math.floor(p), 0, n - 1);
-      const hi = clamp(lo + 1, 0, n - 1);
-      const base = centres[lo]! + (centres[hi]! - centres[lo]!) * (p - lo);
-      // Past either end, keep sliding at the average spacing (rubber band).
-      return p < 0 ? p * avgStep : p > n - 1 ? centres[n - 1]! + (p - n + 1) * avgStep : base;
+      const lo = Math.floor(p);
+      return centreOf(lo) + (centreOf(lo + 1) - centreOf(lo)) * (p - lo);
     },
-    [centres, n, avgStep],
+    [centreOf],
   );
 
-  // Which books are mounted: those within reach of the viewport.
+  // Which slots are mounted: those within reach of the viewport.
   const reach = Math.ceil(size.w / 2 / avgStep) + 4;
-  const from = Math.max(0, focus - reach);
-  const to = Math.min(n - 1, focus + reach);
+  const from = loop ? slot - reach : Math.max(0, slot - reach);
+  const to = loop ? slot + reach : Math.min(n - 1, slot + reach);
 
   const layout = useCallback(() => {
-    const stage = stageRef.current;
-    if (!stage) return;
+    const stage = booksRef.current;
+    if (!stage || !n) return;
     const g = pos.current;
     const cg = centreAt(g);
-    const tapes = stage.querySelectorAll<HTMLElement>(".tape");
-    for (const el of tapes) {
+    for (const el of stage.children as HTMLCollectionOf<HTMLElement>) {
       const i = Number(el.dataset.i);
       const a = i - g;
       const o = Math.abs(a);
       const l = smooth(Math.max(0, 1 - o));
-      const ws = geo[i]?.ws ?? 40;
+      const ws = geo[mod(i, n)]!.ws;
+      // Neighbours slide apart to make room for the open cover.
       const gap = dd / 2 - ws / 2 + size.h * 0.07;
-      const x = centres[i]! - cg + Math.sign(a) * gap * Math.min(1, o);
+      const x = centreOf(i) - cg + Math.sign(a) * gap * Math.min(1, o);
       const hidden = Math.abs(x) > size.w / 2 + dd;
       el.style.visibility = hidden ? "hidden" : "visible";
       if (hidden) continue;
@@ -108,24 +124,26 @@ export function Shelf3D({ index, id, name, books }: Props) {
       el.style.setProperty("--shade", (0.5 * (1 - l)).toFixed(3));
       el.style.setProperty("--sshade", (0.55 * l).toFixed(3));
     }
-  }, [centreAt, centres, dd, geo, size]);
+  }, [centreAt, centreOf, dd, geo, n, size]);
 
   const tick = useCallback(
     (now: number) => {
       const dt = Math.min(64, now - (last.current || now));
       last.current = now;
-      if (!drag.current) {
+      const held = drag.current?.axis === "h" || wheeling.current;
+      if (!held) {
+        // Ease towards the target: about 16% of the way each frame at 60 fps.
         const d = target.current - pos.current;
-        pos.current += reducedMotion ? d : d * (1 - Math.exp(-dt / 95));
+        pos.current += reducedMotion ? d : d * (1 - Math.pow(0.84, dt / 16.7));
         if (Math.abs(d) < 0.0008) pos.current = target.current;
       }
       layout();
-      const f = clamp(Math.round(pos.current), 0, n - 1);
-      setFocus((cur) => (cur === f ? cur : f));
-      if (drag.current || pos.current !== target.current) raf.current = requestAnimationFrame(tick);
+      const s = Math.round(pos.current);
+      setSlot((cur) => (cur === s ? cur : s));
+      if (held || pos.current !== target.current) raf.current = requestAnimationFrame(tick);
       else (raf.current = 0), (last.current = 0);
     },
-    [layout, n],
+    [layout],
   );
 
   const kick = useCallback(() => {
@@ -134,10 +152,11 @@ export function Shelf3D({ index, id, name, books }: Props) {
 
   const goTo = useCallback(
     (i: number) => {
-      target.current = clamp(Math.round(i), 0, Math.max(0, n - 1));
+      const r = Math.round(i);
+      target.current = loop ? r : clamp(r, 0, Math.max(0, n - 1));
       kick();
     },
-    [kick, n],
+    [kick, loop, n],
   );
 
   // Size the shelf from its container.
@@ -152,83 +171,117 @@ export function Shelf3D({ index, id, name, books }: Props) {
     return () => ro.disconnect();
   }, []);
 
+  // When wrapping turns off (narrower room is wider now, or books were filtered), fold back into range.
+  useLayoutEffect(() => {
+    if (loop || !n) return;
+    const t = clamp(mod(target.current, n), 0, n - 1);
+    if (t !== target.current || pos.current < -0.5 || pos.current > n - 0.5) {
+      pos.current = target.current = t;
+      setSlot(t);
+    }
+  }, [loop, n]);
+
   // Re-lay out whenever the mounted set or geometry changes.
   useLayoutEffect(layout, [layout, from, to]);
   useEffect(() => () => cancelAnimationFrame(raf.current), []);
-
-  // Keep focus valid when the shelf's books change (search, uploads).
-  useEffect(() => {
-    if (target.current > n - 1) goTo(n - 1);
-  }, [n, goTo]);
 
   const open = (b: Book) => window.open(api.fileUrl(b.id), "_blank", "noopener");
 
   // ---- Pointer: drag / swipe / click ----
   const onPointerDown = (e: PointerEvent) => {
     if (e.button !== 0) return;
-    drag.current = { x: e.clientX, pos: pos.current, t: performance.now(), v: 0, moved: false, id: e.pointerId };
+    const now = performance.now();
+    drag.current = { x: e.clientX, y: e.clientY, lx: e.clientX, lt: now, pos: pos.current, v: 0, axis: "", id: e.pointerId };
   };
   const onPointerMove = (e: PointerEvent) => {
     moveCursor(e);
+    tilt(e);
     const d = drag.current;
     if (!d) return;
     const dx = e.clientX - d.x;
-    if (!d.moved && Math.abs(dx) > 5) {
-      d.moved = true;
-      stageRef.current?.setPointerCapture(d.id);
+    const dy = e.clientY - d.y;
+    if (!d.axis) {
+      // A mostly vertical swipe belongs to the page, not the shelf.
+      if (Math.abs(dy) > 8 && Math.abs(dy) > Math.abs(dx)) return void (d.axis = "v");
+      if (Math.abs(dx) <= 6) return;
+      d.axis = "h";
+      d.pos = pos.current;
+      d.x = e.clientX;
+      try {
+        stageRef.current?.setPointerCapture(d.id);
+      } catch {
+        /* pointer already gone */
+      }
+      kick();
     }
-    if (!d.moved) return;
+    if (d.axis !== "h") return;
     const now = performance.now();
-    let p = d.pos - dx / avgStep;
-    if (p < 0) p = -Math.sqrt(-p) * 0.6;
-    if (p > n - 1) p = n - 1 + Math.sqrt(p - n + 1) * 0.6;
-    d.v = 0.8 * d.v + 0.2 * ((p - pos.current) / Math.max(1, now - d.t));
-    d.t = now;
+    let p = d.pos - (e.clientX - d.x) / avgStep;
+    if (!loop && p < 0) p = -Math.sqrt(-p) * 0.6;
+    if (!loop && p > n - 1) p = n - 1 + Math.sqrt(p - n + 1) * 0.6;
     pos.current = p;
-    kick();
+    d.v = (e.clientX - d.lx) / Math.max(1, now - d.lt);
+    d.lx = e.clientX;
+    d.lt = now;
   };
   const onPointerUp = (e: PointerEvent) => {
     const d = drag.current;
     drag.current = null;
     if (!d) return;
-    if (d.moved) {
-      goTo(pos.current + d.v * 180);
+    if (d.axis === "h") {
+      // Fling: carry on in the direction of travel, then settle on a book.
+      goTo(pos.current - (d.v * 260) / avgStep);
       return;
     }
+    if (d.axis === "v" || Math.abs(e.clientX - d.x) > 6) return;
     // A click: bring a spine forward, or open the book already facing you.
     const el = (e.target as HTMLElement).closest<HTMLElement>(".tape");
     const i = el ? Number(el.dataset.i) : NaN;
     if (Number.isNaN(i)) return;
-    if (i === target.current && Math.abs(pos.current - i) < 0.05) open(books[i]!);
+    if (i === target.current && Math.abs(pos.current - i) < 0.05) open(books[mod(i, n)]!);
     else goTo(i);
   };
 
-  // Sideways trackpad scrolling browses; vertical scrolling still scrolls the page.
+  // Sideways trackpad scrolling moves the shelf 1:1 and settles on a book when you stop.
+  // Vertical scrolling still scrolls the page.
   useEffect(() => {
     const el = stageRef.current;
     if (!el) return;
     const wheel = (e: WheelEvent) => {
       if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
       e.preventDefault();
-      if (!drag.current) drag.current = { x: 0, pos: pos.current, t: 0, v: 0, moved: true, id: -1 };
-      pos.current = clamp(pos.current + e.deltaX / avgStep / 1.4, -0.4, n - 0.6);
+      wheeling.current = true;
+      let p = pos.current + e.deltaX / avgStep;
+      if (!loop) p = clamp(p, -0.45, n - 0.55);
+      pos.current = target.current = p;
       kick();
       clearTimeout(wheelTimer.current);
       wheelTimer.current = window.setTimeout(() => {
-        drag.current = null;
+        wheeling.current = false;
         goTo(pos.current);
-      }, 110);
+      }, 90);
     };
     el.addEventListener("wheel", wheel, { passive: false });
     return () => el.removeEventListener("wheel", wheel);
-  }, [avgStep, goTo, kick, n]);
+  }, [avgStep, goTo, kick, loop, n]);
 
   const onKey = (e: KeyboardEvent) => {
     const step = { ArrowRight: 1, ArrowLeft: -1, PageDown: 5, PageUp: -5 }[e.key];
     if (step) (goTo(target.current + step), e.preventDefault());
-    if (e.key === "Home") (goTo(0), e.preventDefault());
-    if (e.key === "End") (goTo(n - 1), e.preventDefault());
-    if (e.key === "Enter" && books[target.current]) open(books[target.current]!);
+    const start = target.current - mod(target.current, n);
+    if (e.key === "Home") (goTo(start), e.preventDefault());
+    if (e.key === "End") (goTo(start + n - 1), e.preventDefault());
+    if (e.key === "Enter" && n) open(books[mod(target.current, n)]!);
+  };
+
+  // The view tilts a little towards the pointer, so the books feel solid.
+  const tilt = (e: PointerEvent) => {
+    const el = booksRef.current;
+    if (!el || !finePointer || reducedMotion) return;
+    const r = el.getBoundingClientRect();
+    const nx = (e.clientX - r.left) / r.width - 0.5;
+    const ny = (e.clientY - r.top) / r.height - 0.5;
+    el.style.perspectiveOrigin = `${(50 - nx * 18).toFixed(1)}% ${(12 - ny * 14).toFixed(1)}%`;
   };
 
   // A round cursor that says what a click will do.
@@ -237,7 +290,7 @@ export function Shelf3D({ index, id, name, books }: Props) {
     if (!c || !finePointer) return;
     c.style.transform = `translate3d(${e.clientX}px,${e.clientY}px,0)`;
     const el = (e.target as HTMLElement).closest<HTMLElement>(".tape");
-    const label = drag.current?.moved ? "Drag" : el && Number(el.dataset.i) === target.current ? "Open" : el ? "Pick" : "Drag";
+    const label = drag.current?.axis === "h" ? "Drag" : el && Number(el.dataset.i) === target.current ? "Open" : el ? "Pick" : "Drag";
     if (c.dataset.label !== label) (c.dataset.label = label), (c.firstElementChild!.textContent = label);
   };
 
@@ -271,16 +324,21 @@ export function Shelf3D({ index, id, name, books }: Props) {
         onPointerUp={onPointerUp}
         onPointerCancel={() => ((drag.current = null), goTo(pos.current))}
         onPointerEnter={() => cursorRef.current?.classList.add("is-on")}
-        onPointerLeave={() => cursorRef.current?.classList.remove("is-on")}
+        onPointerLeave={() => {
+          cursorRef.current?.classList.remove("is-on");
+          if (booksRef.current) booksRef.current.style.perspectiveOrigin = "";
+        }}
       >
         <div className="stage__wall" aria-hidden />
         <div className="stage__floor" aria-hidden>
           <div className="stage__pool" />
         </div>
-        <div className="stage__books">
-          {books.slice(from, to + 1).map((b, k) => (
-            <BookTape key={b.id} book={b} index={from + k} geo={geo[from + k]!} />
-          ))}
+        <div className="stage__books" ref={booksRef}>
+          {n > 0 &&
+            Array.from({ length: to - from + 1 }, (_, k) => {
+              const i = from + k;
+              return <BookTape key={i} book={books[mod(i, n)]!} index={i} geo={geo[mod(i, n)]!} />;
+            })}
         </div>
       </div>
       {finePointer && (
@@ -302,13 +360,13 @@ export function Shelf3D({ index, id, name, books }: Props) {
             </span>
           </div>
           <div className="caption__nav">
-            <button type="button" className="round-btn" onClick={() => goTo(target.current - 1)} disabled={focus <= 0} aria-label="Previous book">
+            <button type="button" className="round-btn" onClick={() => goTo(target.current - 1)} disabled={!loop && focus <= 0} aria-label="Previous book">
               <Arrow dir="left" />
             </button>
             <a className="btn btn--primary" href={api.fileUrl(current.id)} target="_blank" rel="noreferrer">
               Open
             </a>
-            <button type="button" className="round-btn" onClick={() => goTo(target.current + 1)} disabled={focus >= n - 1} aria-label="Next book">
+            <button type="button" className="round-btn" onClick={() => goTo(target.current + 1)} disabled={!loop && focus >= n - 1} aria-label="Next book">
               <Arrow dir="right" />
             </button>
           </div>
