@@ -4,9 +4,29 @@ import { extractEpub } from "./epub.js";
 import { extractCbz } from "./cbz.js";
 import { extractPdf } from "./pdf.js";
 
+/** One table-of-contents line. `href` is used by reflowable formats, `page` (1-based) by fixed-layout ones. */
+export interface TocEntry {
+  title: string;
+  level: number;
+  href?: string;
+  page?: number;
+}
+
 export interface ExtractedMeta {
   title?: string;
+  subtitle?: string;
   author?: string;
+  series?: string;
+  seriesIndex?: number;
+  description?: string;
+  publisher?: string;
+  published?: string;
+  pageCount?: number;
+  language?: string;
+  isbn10?: string | null;
+  isbn13?: string;
+  subjects?: string[];
+  toc?: TocEntry[];
   cover?: { data: Buffer; ext: string; contentType: string };
 }
 
@@ -63,7 +83,7 @@ export async function extractMeta(format: Format, data: Buffer): Promise<Extract
       case "cbz":
         return await extractCbz(data);
       case "pdf":
-        return extractPdf(data);
+        return await extractPdf(data);
       default:
         return {};
     }
