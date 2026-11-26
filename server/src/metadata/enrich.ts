@@ -51,10 +51,30 @@ export interface BookMeta {
 
 export type Sources = Partial<Record<MetaField | "cover", FieldSource>>;
 
+/**
+ * Values that aren't real bibliographic data: download-site watermarks ("www.Yutou.org"),
+ * URLs, e-mail addresses, tool names and placeholders.
+ */
+export function isJunkMeta(v: string | null | undefined): boolean {
+  if (!v) return false;
+  const s = v.trim();
+  return (
+    /https?:\/\/|www\.|@[\w-]+\.\w/i.test(s) ||
+    /^[\w-]+(\.[\w-]+)*\.(com|org|net|info|ru|cn|io|me|to|ws|cc|biz|xyz)$/i.test(s) ||
+    /^(admin|administrator|user|owner|unknown|anonymous|calibre|adobe|microsoft|pdf ?creator|acrobat|scanner|scan)$/i.test(s) ||
+    /^(microsoft word|untitled)\b/i.test(s) ||
+    /\.(docx?|pdf|tex|indd|epub|mobi)$/i.test(s)
+  );
+}
+
 const empty = (v: unknown) => v == null || v === "" || (Array.isArray(v) && v.length === 0);
 
 /** Metadata for a freshly indexed file. */
 export function fromFile(meta: ExtractedMeta, fallbackTitle: string): { meta: BookMeta; sources: Sources } {
+  meta = { ...meta };
+  if (isJunkMeta(meta.title)) meta.title = undefined;
+  if (isJunkMeta(meta.author)) meta.author = undefined;
+  if (isJunkMeta(meta.publisher)) meta.publisher = undefined;
   const m: BookMeta = {
     title: meta.title || fallbackTitle,
     subtitle: meta.subtitle ?? null,

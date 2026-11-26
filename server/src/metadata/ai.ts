@@ -90,7 +90,7 @@ You get a file name, the metadata embedded in the file (often missing, wrong or 
 Return the book's real bibliographic details in clean form:
 - title: the real title in normal title case, without the subtitle, edition notes, file extensions, underscores or author names.
 - subtitle: only if the book has one.
-- authors: personal names in "First Last" order; no roles like "editor"; empty if unknown.
+- authors: personal names in "First Last" order; no roles like "editor"; empty if unknown. Website names, URLs, watermarks of download sites (e.g. "www.example.org"), scanner or software names are never authors or publishers.
 - series and seriesIndex only if the book clearly belongs to a numbered series.
 - year: four-digit year of publication if stated.
 - isbn: only an ISBN that literally appears in the provided text; otherwise null. Never invent one.
