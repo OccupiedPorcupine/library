@@ -1,4 +1,5 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { BookPanel } from "./components/BookPanel";
 import { SettingsMenu } from "./components/SettingsMenu";
 import { Shelf3D } from "./components/Shelf3D";
 import { ShelfTabs } from "./components/ShelfTabs";
@@ -13,6 +14,26 @@ export function App() {
   const [toast, setToast] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const deferredQuery = useDeferredValue(query);
+  const [detailId, setDetailId] = useState<string | null>(bookFromHash);
+
+  // The open book lives in the URL (#book=<id>), so Back closes the panel and links can be shared.
+  useEffect(() => {
+    const sync = () => setDetailId(bookFromHash());
+    addEventListener("popstate", sync);
+    addEventListener("hashchange", sync);
+    return () => (removeEventListener("popstate", sync), removeEventListener("hashchange", sync));
+  }, []);
+  const openDetails = useCallback((b: Book) => {
+    if (bookFromHash() === b.id) return;
+    history.pushState({ panel: true }, "", `#book=${encodeURIComponent(b.id)}`);
+    setDetailId(b.id);
+  }, []);
+  const closeDetails = useCallback(() => {
+    if (history.state?.panel) return history.back();
+    // Opened from a link: clear the hash without leaving the app.
+    history.replaceState(null, "", location.pathname + location.search);
+    setDetailId(null);
+  }, []);
 
   const load = useCallback(() => {
     api
@@ -130,13 +151,15 @@ export function App() {
             />
             <div className="shelves">
               {shelves.map((s, i) => (
-                <Shelf3D key={s.id} index={i} id={s.id} name={s.name} books={s.books} />
+                <Shelf3D key={s.id} index={i} id={s.id} name={s.name} books={s.books} onDetails={openDetails} />
               ))}
               {shelves.length === 0 && <p className="notice">No books match “{query}”.</p>}
             </div>
           </>
         )}
       </main>
+
+      {detailId && <BookPanel bookId={detailId} onClose={closeDetails} onChanged={load} />}
 
       {dragging && (
         <div className="dropzone" aria-hidden>
@@ -148,6 +171,11 @@ export function App() {
       </div>
     </div>
   );
+}
+
+function bookFromHash(): string | null {
+  const m = /^#book=(.+)$/.exec(location.hash);
+  return m ? decodeURIComponent(m[1]!) : null;
 }
 
 function TopBar({ query, onQuery, onUpload }: { query: string; onQuery: (q: string) => void; onUpload: (f: File[]) => void }) {

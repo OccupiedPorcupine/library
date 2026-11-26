@@ -8,6 +8,8 @@ interface Props {
   id: string;
   name: string;
   books: Book[];
+  /** Opens the book's detail panel. */
+  onDetails: (book: Book) => void;
 }
 
 const GAP = 3;
@@ -33,7 +35,7 @@ const mod = (a: number, m: number) => ((a % m) + m) % m;
  * writes transforms straight to the DOM; React only re-renders when the focused
  * book changes. Only books near the viewport are mounted.
  */
-export function Shelf3D({ index, id, name, books }: Props) {
+export function Shelf3D({ index, id, name, books, onDetails }: Props) {
   const stageRef = useRef<HTMLDivElement>(null);
   const booksRef = useRef<HTMLDivElement>(null);
   const cursorRef = useRef<HTMLDivElement>(null);
@@ -185,7 +187,7 @@ export function Shelf3D({ index, id, name, books }: Props) {
   useLayoutEffect(layout, [layout, from, to]);
   useEffect(() => () => cancelAnimationFrame(raf.current), []);
 
-  const open = (b: Book) => window.open(api.fileUrl(b.id), "_blank", "noopener");
+  const open = (b: Book) => onDetails(b);
 
   // ---- Pointer: drag / swipe / click ----
   const onPointerDown = (e: PointerEvent) => {
@@ -316,7 +318,7 @@ export function Shelf3D({ index, id, name, books }: Props) {
     if (!c || !finePointer) return;
     c.style.transform = `translate3d(${e.clientX}px,${e.clientY}px,0)`;
     const el = (e.target as HTMLElement).closest<HTMLElement>(".tape");
-    const label = drag.current?.axis === "h" ? "Drag" : el && Number(el.dataset.i) === target.current ? "Open" : el ? "Pick" : "Drag";
+    const label = drag.current?.axis === "h" ? "Drag" : el && Number(el.dataset.i) === target.current ? "About" : el ? "Pick" : "Drag";
     if (c.dataset.label !== label) (c.dataset.label = label), (c.firstElementChild!.textContent = label);
   };
 
@@ -342,7 +344,7 @@ export function Shelf3D({ index, id, name, books }: Props) {
         tabIndex={0}
         role="group"
         aria-roledescription="carousel"
-        aria-label={`${name} shelf. Use arrow keys to browse, Enter to open.`}
+        aria-label={`${name} shelf. Use arrow keys to browse, Enter for details.`}
         style={{ "--h": `${size.h}px`, "--dd": `${dd}px` } as CSSProperties}
         onKeyDown={onKey}
         onPointerDown={onPointerDown}
@@ -389,8 +391,11 @@ export function Shelf3D({ index, id, name, books }: Props) {
             <button type="button" className="round-btn" onClick={() => goTo(target.current - 1)} disabled={!loop && focus <= 0} aria-label="Previous book">
               <Arrow dir="left" />
             </button>
+            <button type="button" className="btn" onClick={() => onDetails(current)}>
+              Details
+            </button>
             <a className="btn btn--primary" href={api.fileUrl(current.id)} target="_blank" rel="noreferrer">
-              Open
+              Read
             </a>
             <button type="button" className="round-btn" onClick={() => goTo(target.current + 1)} disabled={!loop && focus >= n - 1} aria-label="Next book">
               <Arrow dir="right" />

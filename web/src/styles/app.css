@@ -1297,8 +1297,7 @@ input {
   text-decoration: none;
   font-size: 14px;
 }
-.toc__item[style*="--lvl: 0"] .toc__row,
-.toc__item[style*="--lvl:0"] .toc__row {
+.toc__item.is-top .toc__row {
   font-weight: 550;
 }
 a.toc__row:hover {

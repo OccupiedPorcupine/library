@@ -334,7 +334,7 @@ function Contents({ book }: { book: BookDetail }) {
             </>
           );
           return (
-            <li key={i} className="toc__item" style={{ "--lvl": Math.min(4, t.level - minLevel) } as CSSProperties}>
+            <li key={i} className={`toc__item${t.level === minLevel ? " is-top" : ""}`} style={{ "--lvl": Math.min(4, t.level - minLevel) } as CSSProperties}>
               {href ? (
                 <a href={href} target="_blank" rel="noreferrer" className="toc__row">
                   {inner}
