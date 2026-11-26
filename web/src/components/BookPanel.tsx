@@ -15,6 +15,7 @@ interface Props {
 const SOURCE_NAMES: Record<FieldSource, string> = {
   filename: "the file name",
   file: "the file",
+  ai: "AI reading the opening pages",
   openlibrary: "Open Library",
   googlebooks: "Google Books",
   user: "you",
@@ -254,8 +255,8 @@ function View({
               className="icon-btn icon-btn--lg"
               onClick={onRefresh}
               disabled={!!busy}
-              aria-label="Look up details online again"
-              title="Look up details online again"
+              aria-label="Look up details again"
+              title="Look up details again"
             >
               <svg className={busy === "refresh" ? "spin" : undefined} width="15" height="15" viewBox="0 0 16 16" aria-hidden>
                 <path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5v3h-3" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -270,7 +271,7 @@ function View({
       <div className="preview__rest">
       {book.lookupPending && (
         <p className="panel__looking">
-          <span className="dot-pulse" aria-hidden /> Looking up details online…
+          <span className="dot-pulse" aria-hidden /> Looking up details…
         </p>
       )}
 

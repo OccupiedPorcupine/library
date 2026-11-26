@@ -3,6 +3,7 @@ import { BookPanel } from "./components/BookPanel";
 import { READABLE, Reader } from "./components/Reader";
 import { SettingsMenu } from "./components/SettingsMenu";
 import { Shelf3D } from "./components/Shelf3D";
+import { ShelfSuggestions, Spark } from "./components/ShelfSuggestions";
 import { ShelfTabs } from "./components/ShelfTabs";
 import { api, type Book, type LibraryOverview } from "./lib/api";
 
@@ -66,6 +67,37 @@ export function App() {
   );
   useEffect(() => void load(), [load]);
 
+  // The AI shelves new books in the background a little after upload: refresh to show where they went.
+  const later = useRef<number[]>([]);
+  const refreshSoon = useCallback(() => {
+    later.current.forEach(clearTimeout);
+    later.current = [8000, 20000, 45000].map((ms) => window.setTimeout(() => void load(), ms));
+  }, [load]);
+  useEffect(() => () => later.current.forEach(clearTimeout), []);
+
+  const [sorting, setSorting] = useState(false);
+  const sortWithAi = useCallback(async () => {
+    setSorting(true);
+    try {
+      const r = await api.sortLibrary();
+      setToast(
+        [r.placed && `Placed ${r.placed} ${r.placed === 1 ? "book" : "books"}`, r.suggestions.length && `${r.suggestions.length} shelf ${r.suggestions.length === 1 ? "idea" : "ideas"} to review`]
+          .filter(Boolean)
+          .join(" · ") || "Nothing to change",
+      );
+      await load();
+    } catch (e) {
+      setToast((e as Error).message);
+    } finally {
+      setSorting(false);
+    }
+  }, [load]);
+
+  const booksById = useMemo(
+    () => new Map((data ? [...data.shelves.flatMap((s) => s.books), ...data.unshelved] : []).map((b) => [b.id, b])),
+    [data],
+  );
+
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), 4000);
@@ -119,13 +151,15 @@ export function App() {
             .join(" · "),
         );
         await load();
+        // Covers, cleaned titles and AI shelving arrive in the background shortly after.
+        refreshSoon();
       } catch (e) {
         setToast(`Upload failed: ${(e as Error).message}`);
       } finally {
         setPending((p) => p.filter((b) => !ids.has(b.id)));
       }
     },
-    [load],
+    [load, refreshSoon],
   );
 
   // Drop files anywhere on the page.
@@ -186,6 +220,11 @@ export function App() {
               <>
                 {total} {total === 1 ? "book" : "books"}
                 {inProgress > 0 && <> · {inProgress} in progress</>}
+                {data.ai && data.unshelved.length > 0 && (
+                  <button type="button" className="hero__sort" onClick={sortWithAi} disabled={sorting}>
+                    <Spark /> {sorting ? "Sorting…" : `Sort ${data.unshelved.length} unshelved with AI`}
+                  </button>
+                )}
               </>
             ) : (
               " "
@@ -199,6 +238,7 @@ export function App() {
 
         {data && (total > 0 || pending.length > 0) && (
           <>
+            <ShelfSuggestions suggestions={data.suggestions ?? []} books={booksById} onChanged={load} onToast={setToast} />
             <ShelfTabs
               shelves={shelves.map((s) => ({ id: s.id, name: s.name, count: s.books.length }))}
               onCreate={(name) =>
