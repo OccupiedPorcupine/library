@@ -18,6 +18,10 @@ export const config = {
   dbPath: path.join(dataDir, "library.db"),
   /** Built web app to serve in production. */
   webDist: path.resolve(env("WEB_DIST", path.join(import.meta.dirname, "../../web/dist"))),
+  /** Look up missing metadata and covers on Open Library and Google Books. */
+  metadataOnline: env("METADATA_ONLINE", "true") === "true",
+  /** Optional: raises Google Books' anonymous rate limit. Keep it in .env, never in git. */
+  googleBooksApiKey: process.env.GOOGLE_BOOKS_API_KEY || undefined,
   maxUploadBytes: Number(env("MAX_UPLOAD_MB", "1024")) * 1024 * 1024,
   storage: {
     driver: env("STORAGE_DRIVER", "local") as "local" | "s3",

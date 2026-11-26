@@ -5,16 +5,27 @@ import fs from "node:fs";
 import type { Config } from "./config.js";
 import { openDb } from "./db.js";
 import { CONTENT_TYPES } from "./formats/index.js";
-import { HttpError, Library, toDto } from "./library.js";
+import { HttpError, Library, type MetadataPatch } from "./library.js";
 import { createStorage, type Storage } from "./storage/index.js";
 
-export async function buildApp(config: Config, opts: { storage?: Storage; logger?: boolean } = {}) {
+export async function buildApp(
+  config: Config,
+  opts: { storage?: Storage; logger?: boolean; fetch?: typeof fetch } = {},
+) {
   const app = Fastify({ logger: opts.logger ?? true });
   const storage = opts.storage ?? createStorage(config.storage);
   await storage.check();
   const db = openDb(config.dbPath);
-  const library = new Library(db, storage);
-  app.addHook("onClose", async () => db.close());
+  const library = new Library(db, storage, {
+    online: config.metadataOnline,
+    onlineOptions: { googleBooksKey: config.googleBooksApiKey, fetch: opts.fetch },
+    log: (msg, err) => app.log.warn({ err }, msg),
+  });
+  app.addHook("onClose", async () => {
+    library.close();
+    db.close();
+  });
+  app.addHook("onReady", async () => library.resumeQueue());
 
   app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
     const status = err instanceof HttpError ? err.statusCode : (err.statusCode ?? 500);
@@ -45,7 +56,24 @@ export async function buildApp(config: Config, opts: { storage?: Storage; logger
   });
 
   app.get<{ Params: { id: string } }>("/api/books/:id", async (req) => {
-    return toDto(library.getBook(req.params.id));
+    return library.getDetail(req.params.id);
+  });
+
+  // Manual edits; edited fields are never overwritten by online lookups.
+  app.patch<{ Params: { id: string }; Body: MetadataPatch }>(
+    "/api/books/:id/metadata",
+    { schema: { body: { type: "object" } } },
+    async (req) => library.updateMetadata(req.params.id, req.body),
+  );
+
+  // Look the book up on Open Library / Google Books now.
+  app.post<{ Params: { id: string } }>("/api/books/:id/metadata/refresh", async (req) => library.refreshMetadata(req.params.id));
+
+  // Replace the cover with an uploaded image.
+  app.put<{ Params: { id: string } }>("/api/books/:id/cover", async (req) => {
+    const part = await req.file();
+    if (!part) throw new HttpError(400, "No image uploaded");
+    return library.setUserCover(req.params.id, await part.toBuffer());
   });
 
   app.delete<{ Params: { id: string } }>("/api/books/:id", async (req, reply) => {
