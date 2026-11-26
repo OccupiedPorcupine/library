@@ -1,5 +1,6 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { BookPanel } from "./components/BookPanel";
+import { ChatDock } from "./components/ChatDock";
 import { READABLE, Reader } from "./components/Reader";
 import { SettingsMenu } from "./components/SettingsMenu";
 import { Shelf3D } from "./components/Shelf3D";
@@ -250,7 +251,7 @@ export function App() {
     : 0;
 
   return (
-    <div className="app">
+    <div className={`app${data?.ai ? " has-chat" : ""}`}>
       <TopBar query={query} onQuery={setQuery} onUpload={upload} />
 
       <main className="main">
@@ -332,6 +333,7 @@ export function App() {
           onToast={setToast}
         />
       )}
+      {data?.ai && !reading && <ChatDock onChanged={load} onOpenBook={(id) => openReader(id)} />}
       {dragging && (
         <div className="dropzone" aria-hidden>
           <div className="dropzone__card">Drop to add to your library, or onto a shelf to put it there</div>
