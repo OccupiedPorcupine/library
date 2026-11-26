@@ -28,7 +28,7 @@ Open http://localhost:5173.
 
 ## Deploy
 
-See [docs/deploy.md](docs/deploy.md): Docker Compose on a Proxmox VM, exposed on the tailnet with `tailscale serve`.
+See [docs/hosting.md](docs/hosting.md) for how it is hosted today (Proxmox LXC, Docker Compose, Tailscale, Cloudflare Tunnel and Access), and [docs/deploy.md](docs/deploy.md) for NAS and S3 storage options.
 
 ## Layout
 
@@ -40,5 +40,6 @@ See [docs/deploy.md](docs/deploy.md): Docker Compose on a Proxmox VM, exposed on
 
 ## Docs
 
+- [Hosting runbook](docs/hosting.md)
 - [Performance budget](docs/performance.md)
 - [Concept art](docs/concepts/)
