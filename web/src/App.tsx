@@ -349,7 +349,7 @@ function TopBar({ query, onQuery, onUpload }: { query: string; onQuery: (q: stri
           type="file"
           multiple
           hidden
-          accept=".epub,.pdf,.cbz,.txt,.md,.mobi,.azw3,.azw,.fb2"
+          accept=".epub,.pdf,.cbz,.zip,.txt,.md,.mobi,.azw3,.azw,.fb2"
           onChange={(e) => {
             onUpload([...(e.target.files ?? [])]);
             e.target.value = "";
@@ -374,7 +374,7 @@ function EmptyState({ onUpload }: { onUpload: (f: File[]) => void }) {
           type="file"
           multiple
           hidden
-          accept=".epub,.pdf,.cbz,.txt,.md,.mobi,.azw3,.azw,.fb2"
+          accept=".epub,.pdf,.cbz,.zip,.txt,.md,.mobi,.azw3,.azw,.fb2"
           onChange={(e) => onUpload([...(e.target.files ?? [])])}
         />
       </label>
