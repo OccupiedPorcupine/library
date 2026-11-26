@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { api, type BookDetail, type FieldSource, type MetadataPatch, type TocEntry } from "../lib/api";
 import { isLight } from "../lib/color";
+import { READABLE, tocTarget } from "./Reader";
 
 interface Props {
   bookId: string;
   onClose: () => void;
   /** Called after the book changed (edit, new cover, online refresh) so the shelves can reload. */
   onChanged: () => void;
+  /** Opens the in-app reader, optionally at a contents entry (href or PDF page). */
+  onRead: (at?: string) => void;
 }
 
 const SOURCE_NAMES: Record<FieldSource, string> = {
@@ -40,7 +43,7 @@ const POLL_TRIES = 8;
  * A porcelain side panel with everything known about a book: cover, details,
  * description, subjects and table of contents, with an edit mode for fixing anything.
  */
-export function BookPanel({ bookId, onClose, onChanged }: Props) {
+export function BookPanel({ bookId, onClose, onChanged, onRead }: Props) {
   const [book, setBook] = useState<BookDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
@@ -138,9 +141,9 @@ export function BookPanel({ bookId, onClose, onChanged }: Props) {
   return (
     <div className="panel-root">
       <div className="panel-scrim" onClick={onClose} aria-hidden />
-      <div className="panel" ref={panelRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="panel-title">
+      <div className={`panel${book && !editing ? " panel--preview" : ""}`} ref={panelRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="panel-title">
         <div className="panel__bar">
-          <span className="panel__kicker">{editing ? "Edit details" : "About this book"}</span>
+          <span className="panel__kicker">{editing ? "Edit details" : "Preview"}</span>
           <button type="button" className="icon-btn" ref={closeRef} onClick={onClose} aria-label="Close">
             <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden>
               <path d="m2 2 8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
@@ -157,7 +160,7 @@ export function BookPanel({ bookId, onClose, onChanged }: Props) {
             busy={busy}
             onEdit={() => setEditing(true)}
             onRefresh={refresh}
-            onCover={changeCover}
+            onRead={onRead}
           />
         )}
         {book && editing && (
@@ -189,13 +192,13 @@ function View({
   busy,
   onEdit,
   onRefresh,
-  onCover,
+  onRead,
 }: {
   book: BookDetail;
   busy: string;
   onEdit: () => void;
   onRefresh: () => void;
-  onCover: (f: File | undefined) => void;
+  onRead: (at?: string) => void;
 }) {
   const [more, setMore] = useState(false);
   const pct = Math.round((book.finishedAt ? 1 : book.progress) * 100);
@@ -212,10 +215,11 @@ function View({
   const edited = Object.values(book.sources).includes("user");
   const long = (book.description?.length ?? 0) > 420;
 
+  const readable = READABLE.has(book.format);
   return (
-    <div className="panel__body">
-      <div className="panel__hero">
-        <Cover book={book} onCover={onCover} busy={busy === "cover"} />
+    <div className="panel__body preview">
+      <div className="panel__hero preview__hero">
+        <OpenCover book={book} onRead={() => onRead()} />
         <div className="panel__heading">
           {book.series && (
             <span className="panel__series">
@@ -233,9 +237,15 @@ function View({
             {book.finishedAt ? "Finished" : pct ? `${pct}% read` : "Not started"}
           </span>
           <div className="panel__actions">
-            <a className="btn btn--primary" href={api.fileUrl(book.id)} target="_blank" rel="noreferrer">
-              Read
-            </a>
+            {readable ? (
+              <button type="button" className="btn btn--primary" onClick={() => onRead()}>
+                {pct && !book.finishedAt ? "Continue" : "Read"}
+              </button>
+            ) : (
+              <a className="btn btn--primary" href={api.fileUrl(book.id)} target="_blank" rel="noreferrer">
+                Open file
+              </a>
+            )}
             <button type="button" className="btn" onClick={onEdit}>
               Edit
             </button>
@@ -255,6 +265,9 @@ function View({
         </div>
       </div>
 
+      <Contents book={book} onRead={onRead} />
+
+      <div className="preview__rest">
       {book.lookupPending && (
         <p className="panel__looking">
           <span className="dot-pulse" aria-hidden /> Looking up details online…
@@ -298,8 +311,6 @@ function View({
         </section>
       )}
 
-      {book.toc.length > 0 && <Contents book={book} />}
-
       <p className="panel__sources">
         {from.length > 0 && <>Details from {joinNames(from.map((s) => SOURCE_NAMES[s]))}. </>}
         {edited && <>Some fields edited by you. </>}
@@ -308,50 +319,86 @@ function View({
           : ""}
         <span className="panel__file">{book.fileName}</span>
       </p>
+      </div>
     </div>
   );
 }
 
-function Contents({ book }: { book: BookDetail }) {
-  const [open, setOpen] = useState(book.toc.length <= 14);
-  const shown = open ? book.toc : book.toc.filter((t) => t.level === 0).slice(0, 14);
-  const minLevel = Math.min(...book.toc.map((t) => t.level));
-  const link = (t: TocEntry) =>
-    // PDFs open at the page in the browser's viewer. EPUB links wait for the reader (#5).
-    book.format === "pdf" && t.page ? `${api.fileUrl(book.id)}#page=${t.page}` : undefined;
+/** The heart of the preview: every contents entry opens the book right there. */
+function Contents({ book, onRead }: { book: BookDetail; onRead: (at?: string) => void }) {
+  const [open, setOpen] = useState(book.toc.length <= 30);
+  const minLevel = book.toc.length ? Math.min(...book.toc.map((t) => t.level)) : 0;
+  const shown = open ? book.toc : book.toc.filter((t) => t.level === minLevel).slice(0, 30);
   return (
-    <section className="panel__section">
-      <h3 className="panel__h">
-        Contents <span className="panel__count">{book.toc.length}</span>
+    <section className="panel__section preview__contents" aria-labelledby="contents-h">
+      <h3 className="panel__h" id="contents-h">
+        Contents {book.toc.length > 0 && <span className="panel__count">{book.toc.length}</span>}
       </h3>
-      <ol className="toc">
-        {shown.map((t, i) => {
-          const href = link(t);
-          const inner = (
-            <>
-              <span className="toc__title">{t.title}</span>
-              {t.page != null && <span className="toc__page">{t.page}</span>}
-            </>
-          );
-          return (
-            <li key={i} className={`toc__item${t.level === minLevel ? " is-top" : ""}`} style={{ "--lvl": Math.min(4, t.level - minLevel) } as CSSProperties}>
-              {href ? (
-                <a href={href} target="_blank" rel="noreferrer" className="toc__row">
-                  {inner}
-                </a>
-              ) : (
-                <span className="toc__row">{inner}</span>
-              )}
-            </li>
-          );
-        })}
-      </ol>
-      {book.toc.length > 14 && (
+      {book.toc.length === 0 ? (
+        <p className="preview__empty">
+          This file has no table of contents.{" "}
+          {READABLE.has(book.format) ? "Tap the cover to start reading." : ""}
+        </p>
+      ) : (
+        <ol className="toc">
+          {shown.map((t, i) => {
+            const target = tocTarget(book.format, t);
+            const inner = (
+              <>
+                <span className="toc__title">{t.title}</span>
+                {t.page != null && <span className="toc__page">{t.page}</span>}
+              </>
+            );
+            return (
+              <li key={i} className={`toc__item${t.level === minLevel ? " is-top" : ""}`} style={{ "--lvl": Math.min(4, t.level - minLevel) } as CSSProperties}>
+                {target ? (
+                  <button type="button" className="toc__row" onClick={() => onRead(target)}>
+                    {inner}
+                    <svg className="toc__go" width="12" height="10" viewBox="0 0 18 10" aria-hidden>
+                      <path d="M1 5h16m-4-4 4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </button>
+                ) : (
+                  <span className="toc__row">{inner}</span>
+                )}
+              </li>
+            );
+          })}
+        </ol>
+      )}
+      {book.toc.length > 30 && (
         <button type="button" className="link-btn" onClick={() => setOpen((o) => !o)}>
-          {open ? "Show less" : `Show all ${book.toc.length} entries`}
+          {open ? "Show chapters only" : `Show all ${book.toc.length} entries`}
         </button>
       )}
     </section>
+  );
+}
+
+/** The cover in the preview: tap or click it to open the book. */
+function OpenCover({ book, onRead }: { book: BookDetail; onRead: () => void }) {
+  const light = isLight(book.spineColor);
+  const readable = READABLE.has(book.format);
+  const art = book.coverUrl ? (
+    <img src={book.coverUrl} alt="" />
+  ) : (
+    <span className="panel__plain" style={{ background: book.spineColor, color: light ? "#24211c" : "#f5f1e8" }}>
+      <span className="tape__kicker">{book.format.toUpperCase()}</span>
+      <span className="tape__ptitle">{book.title}</span>
+      {book.author && <span className="tape__pauthor">{book.author}</span>}
+    </span>
+  );
+  if (!readable)
+    return (
+      <a className="panel__cover is-openable" href={api.fileUrl(book.id)} target="_blank" rel="noreferrer" aria-label={`Open ${book.title}`}>
+        {art}
+      </a>
+    );
+  return (
+    <button type="button" className="panel__cover is-openable" onClick={onRead} aria-label={`Read ${book.title}`}>
+      {art}
+      <span className="panel__cover-hint">Read</span>
+    </button>
   );
 }
 
