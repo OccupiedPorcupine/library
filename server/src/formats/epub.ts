@@ -47,6 +47,14 @@ const stripHtml = (s: string) =>
   );
 
 const MAX_TOC = 2000;
+/** About one printed page of a typical trade paperback (~300 words). */
+const CHARS_PER_PAGE = 1800;
+
+/** Entries in an EPUB 3 nav document's page-list (the printed edition's page numbers). */
+function pageListCount(navText: string): number {
+  const m = /<nav\b[^>]*epub:type="[^"]*\bpage-list\b[^"]*"[^>]*>([\s\S]*?)<\/nav>/i.exec(navText);
+  return m ? (m[1]!.match(/<a\b/gi) ?? []).length : 0;
+}
 
 function navToc(doc: Node, docPath: string): TocEntry[] {
   const out: TocEntry[] = [];
@@ -171,12 +179,14 @@ export async function extractEpub(data: Buffer): Promise<ExtractedMeta> {
 
   // Table of contents: EPUB 3 nav document, else the EPUB 2 NCX.
   let toc: TocEntry[] = [];
+  let printedPages = 0;
   try {
     const navItem = items.find((i) => (i["@properties"] ?? "").split(/\s+/).includes("nav"));
     if (navItem?.["@href"]) {
       const navPath = path.posix.join(opfDir, decodeURIComponent(navItem["@href"]));
       const navText = await zip.file(navPath)?.async("string");
       if (navText) toc = navToc(navXml.parse(navText), navPath);
+      if (navText) printedPages = pageListCount(navText);
     }
     if (!toc.length) {
       const ncxId = pkg?.spine?.["@toc"] as string | undefined;
@@ -187,24 +197,36 @@ export async function extractEpub(data: Buffer): Promise<ExtractedMeta> {
         if (ncxText) toc = ncxToc(navXml.parse(ncxText), ncxPath);
       }
     }
+    if (!printedPages) {
+      const ncxItem = items.find((i) => i["@media-type"] === "application/x-dtbncx+xml");
+      const ncxText = ncxItem?.["@href"] ? await zip.file(path.posix.join(opfDir, decodeURIComponent(ncxItem["@href"])))?.async("string") : undefined;
+      if (ncxText) printedPages = (ncxText.match(/<pageTarget\b/g) ?? []).length;
+    }
   } catch {
     // A broken TOC shouldn't lose the rest of the metadata.
   }
 
-  // Text of the first few spine documents: title page, copyright page, opening chapter.
+  // Text of the first few spine documents (title page, copyright page, opening chapter) for
+  // the AI, and the length of the whole text for a page estimate.
   let sampleText = "";
+  let textLength = 0;
   try {
     const byId = new Map(items.map((i) => [i["@id"], i]));
     for (const ref of arr(pkg?.spine?.itemref) as Record<string, string>[]) {
-      if (sampleText.length >= 8000) break;
       const it = byId.get(ref["@idref"]);
       if (!it?.["@href"] || !/html|xml/.test(it["@media-type"] ?? "")) continue;
       const html = await zip.file(path.posix.join(opfDir, decodeURIComponent(it["@href"])))?.async("string");
-      if (html) sampleText += stripHtml(html.replace(/<(head|style|script)[\s\S]*?<\/\1>/gi, " ")) + "\n\n";
+      if (!html) continue;
+      const body = stripHtml(html.replace(/<(head|style|script)[\s\S]*?<\/\1>/gi, " "));
+      textLength += body.replace(/\s+/g, " ").length;
+      if (sampleText.length < 8000) sampleText += body + "\n\n";
     }
   } catch {
     // optional
   }
+  // The printed edition's page list when the book has one, else roughly a printed page per
+  // CHARS_PER_PAGE characters.
+  const pageCount = printedPages || (textLength > 0 ? Math.max(1, Math.round(textLength / CHARS_PER_PAGE)) : undefined);
 
   return {
     sampleText: sampleText.trim().slice(0, 8000) || undefined,
@@ -221,6 +243,8 @@ export async function extractEpub(data: Buffer): Promise<ExtractedMeta> {
     isbn13: isbn?.isbn13,
     subjects: subjects.length ? subjects : undefined,
     toc: toc.length ? toc : undefined,
+    pageCount,
+    pageCountEstimated: !printedPages && pageCount !== undefined,
     cover,
   };
 }

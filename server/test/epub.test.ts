@@ -47,3 +47,20 @@ test("EPUB 2: falls back to the NCX table of contents", async () => {
     [["NCX One", 0], ["NCX Sub", 1], ["NCX Two", 0]],
   );
 });
+
+test("EPUB page count: the printed page list when there is one, else an estimate from the text", async () => {
+  const z = await JSZip.loadAsync(await mk(true));
+  z.file("OEBPS/text/c1.xhtml", `<html><body><p>${"word ".repeat(1800)}</p></body></html>`);
+  const est = await extractEpub(await z.generateAsync({ type: "nodebuffer" }));
+  assert.equal(est.pageCount, 5);
+  assert.equal(est.pageCountEstimated, true);
+
+  const nav = (await z.file("OEBPS/nav.xhtml")!.async("string")).replace(
+    "</body>",
+    `<nav epub:type="page-list"><ol>${Array.from({ length: 12 }, (_, i) => `<li><a href="text/c1.xhtml#p${i + 1}">${i + 1}</a></li>`).join("")}</ol></nav></body>`,
+  );
+  z.file("OEBPS/nav.xhtml", nav);
+  const printed = await extractEpub(await z.generateAsync({ type: "nodebuffer" }));
+  assert.equal(printed.pageCount, 12);
+  assert.equal(printed.pageCountEstimated, false);
+});

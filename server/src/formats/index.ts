@@ -22,6 +22,8 @@ export interface ExtractedMeta {
   publisher?: string;
   published?: string;
   pageCount?: number;
+  /** pageCount is an estimate from the text length, not the printed page count. */
+  pageCountEstimated?: boolean;
   language?: string;
   isbn10?: string | null;
   isbn13?: string;
