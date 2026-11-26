@@ -152,3 +152,19 @@ test("watermarks and URLs in file metadata are ignored, and old junk is cleaned 
     await app.close();
   }
 });
+
+test("spines take their colour from the cover", async () => {
+  const { app, library } = await buildApp(testConfig(), { logger: false });
+  try {
+    const { book } = await library.addBook("x.epub", await epub("Red Book", "Me"));
+    const c = createCanvas(300, 450);
+    const ctx = c.getContext("2d");
+    ctx.fillStyle = "#b01c1c";
+    ctx.fillRect(0, 0, 300, 450);
+    const d = await library.setUserCover(book.id, Buffer.from(await c.encode("jpeg", 90)));
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(d.spineColor.slice(i, i + 2), 16));
+    assert.ok(r! > 120 && g! < 80 && b! < 80, `expected a red spine, got ${d.spineColor}`);
+  } finally {
+    await app.close();
+  }
+});
