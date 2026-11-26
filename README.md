@@ -4,10 +4,19 @@ A personal library web app: a home for my books with themed shelves, custom anim
 
 ![Shelves in light mode](docs/screenshots/shelves-light.png)
 
+![Book details panel](docs/screenshots/book-panel-light.png)
+
 ## What works today
 
 - Upload EPUB, PDF, CBZ, MOBI/AZW3, FB2, TXT and Markdown (button or drag and drop). Duplicates are detected.
-- Title, author and cover pulled from EPUB, CBZ (ComicInfo.xml) and simple PDFs. Books without a cover get a generated one.
+- Metadata is gathered automatically, in this order:
+  1. **The file:** EPUB package data and table of contents (nav or NCX), PDF info/XMP, bookmarks and an ISBN found on the first pages (page 1 is rendered as the cover), CBZ ComicInfo.xml.
+  2. **Open Library** (free, no key), by ISBN, else by title and author.
+  3. **Google Books** (free; optional `GOOGLE_BOOKS_API_KEY` in `.env`) for whatever is still missing.
+  4. **You:** edit any field or upload a cover. Edited fields are never overwritten by later lookups.
+
+  Fields: title, subtitle, author(s), series and number, cover, description, publisher, publication date, page count, language, ISBN-10/13, subjects and table of contents. Lookups run in a background queue after upload (and once for books added before this existed); set `METADATA_ONLINE=false` to stay offline.
+- Click the book facing you (or **Details**) for a panel with the cover, details, description, subjects and contents. PDF contents entries jump to their page.
 - Themed shelves stacked vertically. Books stand as 3D boxes; the one in focus swings round to show its cover. Drag, swipe, scroll sideways, click a spine or use the arrow keys to browse. A sticky pill of shelf names jumps between shelves.
 - Reading progress lights each book from the bottom up; finished books are at full brightness. This dimming can be turned off in display settings (saved per device).
 - Porcelain design in light and dark mode.

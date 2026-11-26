@@ -4,4 +4,4 @@
 - **Commit identity:** author and commit as `OccupiedPorcupine <189309064+OccupiedPorcupine@users.noreply.github.com>`. Do not add `Co-Authored-By` or session trailers to commit messages.
 - **Small commits:** commit often, one focused change per commit (e.g. schema, then API route, then UI), pushing as you go. Never bundle a whole feature into one big commit.
 - Planning lives in GitHub issues (v1 and Later milestones). Performance budget: `docs/performance.md`. Design tokens: `web/src/styles/tokens.css`.
-- Checks: `npm run typecheck` and `npm run build`.
+- Checks: `npm run typecheck`, `npm test` (server) and `npm run build`.
