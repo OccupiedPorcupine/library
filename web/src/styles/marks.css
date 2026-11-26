@@ -1,0 +1,396 @@
+/* ---------- Highlights, notes and bookmarks (#48) ---------- */
+
+/* foliate-js draws ebook highlights in its own overlay; these tune how they sit on the text. */
+.reader__foliate {
+  --overlayer-highlight-opacity: 0.42;
+  --overlayer-highlight-blend-mode: multiply;
+}
+:root[data-theme="dark"] .reader__foliate {
+  --overlayer-highlight-opacity: 0.34;
+  --overlayer-highlight-blend-mode: normal;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .reader__foliate {
+    --overlayer-highlight-opacity: 0.34;
+    --overlayer-highlight-blend-mode: normal;
+  }
+}
+
+/* PDF pages: the canvas, then invisible selectable text, then highlight boxes. */
+.pdf-page {
+  position: relative;
+}
+.pdf-page canvas {
+  position: relative;
+  z-index: 0;
+}
+.pdf-marks {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+.pdf-mark {
+  position: absolute;
+  border-radius: 2px;
+  background: var(--mark);
+  opacity: 0.45;
+  mix-blend-mode: multiply;
+}
+.pdf-mark.has-note {
+  box-shadow: inset 0 -1.5px 0 color-mix(in srgb, var(--mark) 70%, #000);
+}
+:root[data-theme="dark"] .pdf-mark {
+  mix-blend-mode: screen;
+  opacity: 0.4;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .pdf-mark {
+    mix-blend-mode: screen;
+    opacity: 0.4;
+  }
+}
+
+/* The text layer, after pdf.js's own viewer styles (pdf_viewer.css), trimmed to what's used. */
+.textLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: clip;
+  line-height: 1;
+  text-align: initial;
+  text-size-adjust: none;
+  -webkit-text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+}
+.textLayer :is(span, br) {
+  position: absolute;
+  color: transparent;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+}
+.textLayer > :not(.markedContent),
+.textLayer .markedContent span:not(.markedContent) {
+  z-index: 1;
+  --font-height: 0;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  --scale-x: 1;
+  --rotate: 0deg;
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+.textLayer .markedContent {
+  display: contents;
+}
+.textLayer span[role="img"] {
+  user-select: none;
+  cursor: default;
+}
+.textLayer ::selection {
+  background: color-mix(in srgb, #3d7be0 30%, transparent);
+}
+.textLayer br::selection {
+  background: transparent;
+}
+.textLayer .endOfContent {
+  display: block;
+  position: absolute;
+  inset: 100% 0 0;
+  z-index: 0;
+  cursor: default;
+  user-select: none;
+}
+.textLayer.selecting .endOfContent {
+  top: 0;
+}
+
+/* Toolbar over selected text. */
+.marks-menu {
+  position: fixed;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--hairline);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-3), var(--highlight-top);
+  animation: pop var(--med) var(--ease);
+  user-select: none;
+  -webkit-user-select: none;
+}
+.marks-menu__swatches {
+  display: flex;
+  gap: 2px;
+}
+.marks-swatch {
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.marks-swatch::before {
+  content: "";
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--swatch);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+  transition: transform var(--fast, 120ms) var(--ease);
+}
+.marks-swatch:hover::before {
+  transform: scale(1.1);
+}
+.marks-swatch.is-on::before {
+  box-shadow: 0 0 0 2px var(--surface-raised), 0 0 0 3.5px var(--ink);
+}
+.marks-menu__rule {
+  width: 1px;
+  align-self: stretch;
+  margin: 4px 4px;
+  background: var(--hairline-strong);
+}
+.marks-menu__btn {
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.marks-menu__btn:hover {
+  background: var(--hairline);
+}
+.marks-menu__btn--danger {
+  color: var(--danger);
+}
+
+/* Note editor. */
+.marks-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: color-mix(in srgb, var(--surface) 55%, transparent);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  animation: fade var(--med) var(--ease);
+}
+.marks-sheet__card {
+  width: min(520px, 100%);
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  border-radius: var(--radius-l);
+  border: 1px solid var(--hairline);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-3), var(--highlight-top);
+  animation: pop var(--med) var(--ease);
+}
+.marks-quote {
+  margin: 0;
+  padding: 2px 0 2px 12px;
+  border-left: 3px solid var(--swatch);
+  font-family: var(--font-serif);
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+  max-height: 7.5em;
+  overflow: auto;
+}
+.marks-sheet__text {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 110px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--hairline-strong);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 16px; /* 16px keeps iPhones from zooming in on focus */
+  line-height: 1.5;
+}
+.marks-sheet__text:focus {
+  outline: 2px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  outline-offset: 1px;
+}
+.marks-sheet__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* The list of everything marked. */
+.marks-panel {
+  padding-top: 12px;
+}
+.marks-panel__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--hairline);
+}
+.marks-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 11px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--hairline-strong);
+  background: transparent;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.marks-filter.is-on {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--surface-raised);
+}
+.marks-filter__n {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.6;
+}
+.marks-panel__empty {
+  margin: 16px 2px 8px;
+  color: var(--ink-faint);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.marks-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.marks-item {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--hairline);
+}
+.marks-item:last-child {
+  border-bottom: 0;
+}
+.marks-item__go {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: 4px 6px;
+  margin: 0 -6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.marks-item__go:hover {
+  background: var(--hairline);
+}
+.marks-item__where {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+.marks-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--swatch);
+}
+.marks-item__text {
+  font-family: var(--font-serif);
+  font-size: 15px;
+  line-height: 1.45;
+  color: var(--ink);
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.marks-item__note {
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--ink-soft);
+  white-space: pre-wrap;
+  padding-left: 10px;
+  border-left: 2px solid var(--hairline-strong);
+}
+.marks-item__tools {
+  display: flex;
+  gap: 12px;
+  padding: 4px 0 0;
+}
+.marks-item__tool {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-faint);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.marks-item__tool:hover {
+  color: var(--ink);
+}
+.marks-item__tool--danger:hover {
+  color: var(--danger);
+}
+
+/* Bookmark button in the reader's bar, and the ribbon on a bookmarked page. */
+.reader__mark.is-on {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+}
+.reader__ribbon {
+  position: absolute;
+  top: 0;
+  right: clamp(18px, 6vw, 64px);
+  z-index: 1;
+  width: 14px;
+  height: 30px;
+  background: var(--danger);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 76%, 0 100%);
+  opacity: 0.85;
+  pointer-events: none;
+  animation: ribbon var(--med) var(--ease);
+}
+@keyframes ribbon {
+  from {
+    transform: translateY(-100%);
+  }
+}
+.reader__toast {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  z-index: 5;
+  transform: translateX(-50%);
+  padding: 8px 14px;
+  border-radius: var(--radius-pill);
+  background: var(--ink);
+  color: var(--surface-raised);
+  font-size: 13px;
+  box-shadow: var(--shadow-3);
+}

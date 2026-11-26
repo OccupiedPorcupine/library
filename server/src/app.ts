@@ -4,6 +4,7 @@ import fastifyStatic from "@fastify/static";
 import Fastify from "fastify";
 import fs from "node:fs";
 import type { Config } from "./config.js";
+import { registerAnnotationRoutes } from "./annotations.js";
 import { openDb } from "./db.js";
 import { CONTENT_TYPES } from "./formats/index.js";
 import { HttpError, Library, type MetadataPatch } from "./library.js";
@@ -42,6 +43,9 @@ export async function buildApp(
   app.get("/api/health", async () => ({ ok: true, storage: storage.name }));
 
   app.get("/api/library", async () => library.overview());
+
+  // Highlights, notes and bookmarks (#48).
+  registerAnnotationRoutes(app, db);
 
   app.post("/api/library/scan", async () => library.scan());
 
