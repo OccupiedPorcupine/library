@@ -22,7 +22,7 @@ export interface TocEntry {
   page?: number;
 }
 
-export type FieldSource = "filename" | "file" | "openlibrary" | "googlebooks" | "user";
+export type FieldSource = "filename" | "file" | "ai" | "openlibrary" | "googlebooks" | "user";
 
 export interface BookDetail extends Book {
   subtitle: string | null;
@@ -58,9 +58,20 @@ export interface Shelf {
   books: Book[];
 }
 
+export interface ShelfSuggestion {
+  id: string;
+  name: string;
+  reason: string | null;
+  bookIds: string[];
+}
+
 export interface LibraryOverview {
   shelves: Shelf[];
   unshelved: Book[];
+  /** New shelves the AI suggests, waiting for you to accept or dismiss. */
+  suggestions: ShelfSuggestion[];
+  /** Whether the server has an AI key set up. */
+  ai: boolean;
 }
 
 async function json<T>(res: Response): Promise<T> {
@@ -118,6 +129,21 @@ export const api = {
     form.append("cover", file, file.name);
     return fetch(`/api/books/${id}/cover`, { method: "PUT", body: form }).then((r) => json<BookDetail>(r));
   },
+
+  sortLibrary: () =>
+    fetch("/api/library/sort", { method: "POST" }).then((r) => json<{ placed: number; suggestions: ShelfSuggestion[] }>(r)),
+
+  acceptSuggestion: (id: string, name?: string) =>
+    fetch(`/api/shelf-suggestions/${id}/accept`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(name ? { name } : {}),
+    }).then((r) => json<{ id: string; name: string }>(r)),
+
+  dismissSuggestion: (id: string) =>
+    fetch(`/api/shelf-suggestions/${id}`, { method: "DELETE" }).then((r) => {
+      if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+    }),
 
   setProgress: (id: string, progress: number) =>
     fetch(`/api/books/${id}/progress`, {
