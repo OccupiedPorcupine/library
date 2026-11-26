@@ -19,6 +19,8 @@ export async function buildApp(
   const library = new Library(db, storage, {
     online: config.metadataOnline,
     onlineOptions: { googleBooksKey: config.googleBooksApiKey, fetch: opts.fetch },
+    ai: { ...config.openai, fetch: opts.fetch },
+    aiAutoShelve: config.aiAutoShelve,
     log: (msg, err) => app.log.warn({ err }, msg),
   });
   app.addHook("onClose", async () => {
@@ -67,7 +69,23 @@ export async function buildApp(
   );
 
   // Look the book up on Open Library / Google Books now.
-  app.post<{ Params: { id: string } }>("/api/books/:id/metadata/refresh", async (req) => library.refreshMetadata(req.params.id));
+  // Runs the AI pass again first (when set up), so the online search uses its cleaned title.
+  app.post<{ Params: { id: string } }>("/api/books/:id/metadata/refresh", async (req) => {
+    await library.aiPass(req.params.id, true).catch((e: Error) => app.log.warn({ err: e }, "AI metadata failed"));
+    return library.refreshMetadata(req.params.id);
+  });
+
+  // AI shelf sorting: places unshelved books and suggests new shelves.
+  app.post("/api/library/sort", async () => library.sortBooks());
+
+  app.post<{ Params: { id: string }; Body: { name?: string } }>("/api/shelf-suggestions/:id/accept", async (req, reply) =>
+    reply.status(201).send(library.acceptSuggestion(req.params.id, req.body?.name)),
+  );
+
+  app.delete<{ Params: { id: string } }>("/api/shelf-suggestions/:id", async (req, reply) => {
+    library.dismissSuggestion(req.params.id);
+    reply.status(204).send();
+  });
 
   // Replace the cover with an uploaded image.
   app.put<{ Params: { id: string } }>("/api/books/:id/cover", async (req) => {
