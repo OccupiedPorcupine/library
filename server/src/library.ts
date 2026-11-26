@@ -5,7 +5,7 @@ import type { BookRow, Db, ShelfRow, ShelfSuggestionRow } from "./db.js";
 import { CONTENT_TYPES, detectFormat, extractMeta, isSupported, titleFromFileName, type TocEntry } from "./formats/index.js";
 import { imageSize, sniffImage } from "./formats/images.js";
 import { type AiOptions, aiEnabled, aiMetadata, aiSortShelves } from "./metadata/ai.js";
-import { type BookMeta, fromFile, META_FIELDS, mergeAi, mergeOnline, type MetaField, type Sources, wantsOnlineCover } from "./metadata/enrich.js";
+import { type BookMeta, fromFile, isJunkMeta, META_FIELDS, mergeAi, mergeOnline, type MetaField, type Sources, wantsOnlineCover } from "./metadata/enrich.js";
 import { parseIsbn } from "./metadata/isbn.js";
 import { googleBooks, type LookupQuery, openLibrary, type OnlineMeta, type OnlineOptions } from "./metadata/online.js";
 import type { Storage } from "./storage/index.js";
@@ -568,8 +568,41 @@ export class Library {
     if (res.changes === 0) throw new HttpError(404, "Suggestion not found");
   }
 
+  /**
+   * Clears junk that came from files before the filter existed (e.g. a watermark as the author),
+   * and marks those books to be looked up again.
+   */
+  cleanJunk(): number {
+    let fixed = 0;
+    for (const b of this.db.prepare("SELECT * FROM books").all() as BookRow[]) {
+      const sources = JSON.parse(b.meta_sources || "{}") as Sources;
+      const m = rowMeta(b);
+      let dirty = false;
+      for (const f of ["title", "author", "publisher"] as const) {
+        const src = sources[f];
+        if ((src === "file" || src === "filename" || src === "ai") && isJunkMeta(m[f])) {
+          if (f === "title") {
+            m.title = titleFromFileName(b.file_name);
+            sources.title = "filename";
+          } else {
+            m[f] = null;
+            delete sources[f];
+          }
+          dirty = true;
+        }
+      }
+      if (!dirty) continue;
+      this.saveMeta(b.id, m, sources);
+      this.db.prepare("UPDATE books SET meta_checked_at = NULL, ai_checked_at = NULL WHERE id = ?").run(b.id);
+      fixed++;
+    }
+    if (fixed) this.opts.log?.(`cleared junk metadata on ${fixed} book(s); looking them up again`);
+    return fixed;
+  }
+
   /** On startup: pick up every book that still needs an online lookup or AI pass. */
   resumeQueue(): void {
+    this.cleanJunk();
     const ai = aiEnabled(this.opts.ai);
     const ids = this.db
       .prepare(
