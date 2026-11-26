@@ -1970,3 +1970,102 @@ button.toc__row:focus-visible .toc__go {
   flex: 1;
   min-width: 0;
 }
+
+/* ---------- Moving a book between shelves ---------- */
+.book-ghost {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 240px;
+  padding: 8px 14px 8px 8px;
+  border-radius: var(--radius-m);
+  border: 1px solid var(--hairline);
+  border-left: 6px solid var(--spine);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-3), var(--highlight-top);
+  font-family: var(--font-serif);
+  font-size: 14px;
+  line-height: 1.25;
+  pointer-events: none;
+  animation: lift 160ms var(--ease);
+  transition: opacity 200ms var(--ease), scale 200ms var(--ease);
+}
+.book-ghost img {
+  width: 34px;
+  height: 50px;
+  object-fit: cover;
+  border-radius: 2px;
+  box-shadow: var(--shadow-1);
+}
+.book-ghost span {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.book-ghost.is-copy::after {
+  content: "+";
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font: 600 14px/1 var(--font-sans, system-ui);
+}
+.book-ghost.is-dropped {
+  opacity: 0;
+  scale: 0.6;
+}
+.book-ghost.is-cancelled {
+  opacity: 0;
+}
+@keyframes lift {
+  from {
+    scale: 0.85;
+    opacity: 0;
+  }
+}
+.is-dragging-book,
+.is-dragging-book * {
+  cursor: grabbing !important;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.shelf.is-drop-target .stage,
+.tabs__tab.is-drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: 4px;
+  border-radius: var(--radius-l);
+}
+.tabs__tab.is-drop-target {
+  outline-offset: 1px;
+  border-radius: var(--radius-pill);
+}
+
+.toast.has-action {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  pointer-events: auto;
+}
+.toast__action {
+  border: 0;
+  padding: 0;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  color: var(--accent);
+  cursor: pointer;
+}
+.toast:not(.is-visible) {
+  pointer-events: none;
+}
