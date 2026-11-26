@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react";
 import { api, type Book } from "../lib/api";
+import { type BookDrop, startBookDrag } from "../lib/bookDrag";
 import { hash } from "../lib/color";
 import { pagesOf, spineWidth, fitSpine, shortAuthor } from "../lib/spine";
 import { BookTape, type TapeGeometry } from "./BookTape";
@@ -13,6 +14,8 @@ interface Props {
   onDetails: (book: Book) => void;
   /** Opens the book in the reader. */
   onRead: (book: Book) => void;
+  /** A book picked up off this shelf was dropped on another one. */
+  onMove?: (drop: BookDrop) => void;
 }
 
 const GAP = 3;
@@ -38,7 +41,7 @@ const mod = (a: number, m: number) => ((a % m) + m) % m;
  * writes transforms straight to the DOM; React only re-renders when the focused
  * book changes. Only books near the viewport are mounted.
  */
-export function Shelf3D({ index, id, name, books, onDetails, onRead }: Props) {
+export function Shelf3D({ index, id, name, books, onDetails, onRead, onMove }: Props) {
   const stageRef = useRef<HTMLDivElement>(null);
   const booksRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 1000, h: 300 });
@@ -50,9 +53,19 @@ export function Shelf3D({ index, id, name, books, onDetails, onRead }: Props) {
   const target = useRef(slot);
   const raf = useRef(0);
   const last = useRef(0);
-  const drag = useRef<{ x: number; y: number; lx: number; lt: number; pos: number; v: number; axis: "" | "h" | "v"; id: number } | null>(
-    null,
-  );
+  const drag = useRef<{
+    x: number;
+    y: number;
+    lx: number;
+    lt: number;
+    pos: number;
+    v: number;
+    axis: "" | "h" | "v" | "book";
+    id: number;
+    /** The book under the pointer when it went down, if it can be picked up. */
+    book: Book | null;
+    timer: number;
+  } | null>(null);
   const wheeling = useRef(false);
   const wheelTimer = useRef(0);
 
@@ -202,10 +215,36 @@ export function Shelf3D({ index, id, name, books, onDetails, onRead }: Props) {
   const open = (b: Book) => onDetails(b);
 
   // ---- Pointer: drag / swipe / click ----
+  // Picking a book up: drag it up or down with a mouse, or press and hold on a touch screen.
+  const pickUp = (d: NonNullable<typeof drag.current>, x: number, y: number) => {
+    if (!d.book || !onMove) return false;
+    d.axis = "book";
+    clearTimeout(d.timer);
+    goTo(target.current);
+    startBookDrag(d.book, id, { x, y }, onMove);
+    return true;
+  };
   const onPointerDown = (e: PointerEvent) => {
     if (e.button !== 0) return;
     const now = performance.now();
-    drag.current = { x: e.clientX, y: e.clientY, lx: e.clientX, lt: now, pos: pos.current, v: 0, axis: "", id: e.pointerId };
+    const el = (e.target as HTMLElement).closest<HTMLElement>(".tape");
+    const b = el && n ? books[mod(Number(el.dataset.i), n)] : undefined;
+    const d = {
+      x: e.clientX,
+      y: e.clientY,
+      lx: e.clientX,
+      lt: now,
+      pos: pos.current,
+      v: 0,
+      axis: "" as const,
+      id: e.pointerId,
+      book: b && b.transfer === undefined ? b : null,
+      timer: 0,
+    };
+    drag.current = d;
+    if (e.pointerType === "touch" && d.book) {
+      d.timer = window.setTimeout(() => drag.current === d && !d.axis && pickUp(d, d.x, d.y), 420);
+    }
   };
   const onPointerMove = (e: PointerEvent) => {
     tilt(e);
@@ -213,9 +252,14 @@ export function Shelf3D({ index, id, name, books, onDetails, onRead }: Props) {
     if (!d) return;
     const dx = e.clientX - d.x;
     const dy = e.clientY - d.y;
+    if (d.axis === "book") return;
     if (!d.axis) {
-      // A mostly vertical swipe belongs to the page, not the shelf.
-      if (Math.abs(dy) > 8 && Math.abs(dy) > Math.abs(dx)) return void (d.axis = "v");
+      if (Math.abs(dx) > 6 || Math.abs(dy) > 8) clearTimeout(d.timer);
+      // A mostly vertical drag picks a book up with a mouse; with a finger it scrolls the page.
+      if (Math.abs(dy) > 8 && Math.abs(dy) > Math.abs(dx)) {
+        if (e.pointerType !== "touch" && pickUp(d, e.clientX, e.clientY)) return;
+        return void (d.axis = "v");
+      }
       if (Math.abs(dx) <= 6) return;
       d.axis = "h";
       d.pos = pos.current;
@@ -241,6 +285,8 @@ export function Shelf3D({ index, id, name, books, onDetails, onRead }: Props) {
     const d = drag.current;
     drag.current = null;
     if (!d) return;
+    clearTimeout(d.timer);
+    if (d.axis === "book") return;
     if (d.axis === "h") {
       // Fling: carry on in the direction of travel, then settle on a book.
       goTo(pos.current - (d.v * 260) / avgStep);
@@ -345,7 +391,12 @@ export function Shelf3D({ index, id, name, books, onDetails, onRead }: Props) {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        onPointerCancel={() => ((drag.current = null), goTo(pos.current))}
+        onPointerCancel={() => {
+          if (drag.current) clearTimeout(drag.current.timer);
+          drag.current = null;
+          goTo(pos.current);
+        }}
+        onContextMenu={(e) => drag.current?.axis === "book" && e.preventDefault()}
         onPointerLeave={() => {
           if (booksRef.current) booksRef.current.style.perspectiveOrigin = "";
         }}
