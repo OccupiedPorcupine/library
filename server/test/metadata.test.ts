@@ -1,3 +1,4 @@
+import { fromFile, mergeOnline } from "../src/metadata/enrich.js";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -197,4 +198,18 @@ test("moving books between shelves and reordering shelves", async () => {
   } finally {
     await app.close();
   }
+});
+
+test("a looked-up page count replaces an estimate, but never your own", () => {
+  const base = fromFile({ title: "T", pageCount: 300, pageCountEstimated: true }, "T");
+  assert.equal(base.sources.pageCount, "estimate");
+  mergeOnline(base.meta, base.sources, [{ source: "openlibrary", matchedBy: "isbn", pageCount: 352 }]);
+  assert.equal(base.meta.pageCount, 352);
+  assert.equal(base.sources.pageCount, "openlibrary");
+
+  const mine = fromFile({ title: "T" }, "T");
+  mine.meta.pageCount = 100;
+  mine.sources.pageCount = "user";
+  mergeOnline(mine.meta, mine.sources, [{ source: "openlibrary", matchedBy: "isbn", pageCount: 352 }]);
+  assert.equal(mine.meta.pageCount, 100);
 });

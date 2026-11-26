@@ -13,7 +13,7 @@ import type { AiMeta } from "./ai.js";
 import { parseIsbn } from "./isbn.js";
 import type { OnlineMeta } from "./online.js";
 
-export type FieldSource = "filename" | "file" | "ai" | "openlibrary" | "googlebooks" | "user";
+export type FieldSource = "filename" | "file" | "estimate" | "ai" | "openlibrary" | "googlebooks" | "user";
 
 export const META_FIELDS = [
   "title",
@@ -94,6 +94,7 @@ export function fromFile(meta: ExtractedMeta, fallbackTitle: string): { meta: Bo
   const sources: Sources = {};
   for (const f of META_FIELDS) if (!empty(m[f])) sources[f] = "file";
   sources.title = meta.title ? "file" : "filename";
+  if (m.pageCount && meta.pageCountEstimated) sources.pageCount = "estimate";
   if (meta.cover) sources.cover = "file";
   return { meta: m, sources };
 }
@@ -155,7 +156,9 @@ export function mergeOnline(meta: BookMeta, sources: Sources, results: OnlineMet
     fill("description", r.description ?? null);
     fill("publisher", r.publisher ?? null);
     fill("published", r.published ?? null);
-    fill("pageCount", r.pageCount ?? null);
+    // A printed page count from a lookup beats an estimate from the text.
+    if (r.pageCount && sources.pageCount === "estimate") set("pageCount", r.pageCount, r.source);
+    else fill("pageCount", r.pageCount ?? null);
     fill("language", r.language ?? null);
     fill("subjects", r.subjects ?? []);
     fill("toc", r.toc ?? []);
