@@ -259,12 +259,17 @@ export async function buildApp(
   if (fs.existsSync(config.webDist)) {
     await app.register(fastifyStatic, {
       root: config.webDist,
+      // Headers below decide caching (the default would add max-age=0 to everything).
+      cacheControl: false,
       setHeaders: (res, filePath) => {
         if (filePath.includes(`${"/"}assets${"/"}`)) res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+        // The page, the service worker and the manifest must always be checked for updates.
+        else if (/(index\.html|sw\.js|manifest\.webmanifest)$/.test(filePath)) res.setHeader("Cache-Control", "no-cache");
+        if (filePath.endsWith(".webmanifest")) res.setHeader("Content-Type", "application/manifest+json");
       },
     });
     app.setNotFoundHandler((req, reply) => {
-      if (req.url.startsWith("/api/") || req.url.startsWith("/assets/")) return reply.status(404).send({ error: "Not found" });
+      if (/^\/(api|assets|icons)\//.test(req.url)) return reply.status(404).send({ error: "Not found" });
       return reply.sendFile("index.html");
     });
   }

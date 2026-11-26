@@ -9,3 +9,9 @@ createRoot(document.getElementById("root")!).render(
     <App />
   </StrictMode>,
 );
+
+// The installed app's service worker (app shell only; see public/sw.js). Not in dev, where it
+// would serve stale modules.
+if ("serviceWorker" in navigator && import.meta.env.PROD) {
+  addEventListener("load", () => void navigator.serviceWorker.register("/sw.js").catch(() => {}));
+}

@@ -44,6 +44,16 @@ Open http://localhost:5173.
 
 See [docs/deploy.md](docs/deploy.md): Docker Compose on a Proxmox VM, exposed on the tailnet with `tailscale serve`.
 
+## Install it as an app
+
+The site is a progressive web app: installed, it opens full screen without browser bars.
+
+- **iPhone / iPad (Safari):** open the library, tap **Share**, then **Add to Home Screen**, then **Add**. Open it from the new icon. The first time, you may need to sign in again, because Home Screen apps keep their own cookies, separate from Safari.
+- **Mac (Safari 17+):** open the library, then **File → Add to Dock**.
+- **Mac / Windows (Chrome or Edge):** click the install icon at the right of the address bar, or open the menu and choose **Cast, save and share → Install page as app**.
+
+A small service worker keeps the app shell, so the app starts quickly and still opens without a connection (books themselves need one for now). To regenerate the icons after a design change, run `node scripts/make-icons.mjs`.
+
 ## Layout
 
 | Path | What |
