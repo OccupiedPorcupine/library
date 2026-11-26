@@ -4,6 +4,7 @@ import type { Readable } from "node:stream";
 import type { BookRow, Db, ShelfRow, ShelfSuggestionRow } from "./db.js";
 import { CONTENT_TYPES, detectFormat, extractMeta, isSupported, titleFromFileName, type TocEntry } from "./formats/index.js";
 import { imageSize, sniffImage } from "./formats/images.js";
+import { repackEpubZip } from "./formats/repack.js";
 import { type AiOptions, aiEnabled, aiMetadata, aiSortShelves } from "./metadata/ai.js";
 import { type BookMeta, fromFile, isJunkMeta, META_FIELDS, mergeAi, mergeOnline, type MetaField, type Sources, wantsOnlineCover } from "./metadata/enrich.js";
 import { spineColorFromCover } from "./metadata/color.js";
@@ -193,6 +194,9 @@ export class Library {
   }
 
   async addBook(fileName: string, data: Buffer, shelfId?: string): Promise<{ book: BookDto; duplicate: boolean }> {
+    // A zipped EPUB folder (an Apple Books export) becomes a real EPUB.
+    const repacked = await repackEpubZip(fileName, data);
+    if (repacked) ({ fileName, data } = repacked);
     const format = detectFormat(fileName, data.subarray(0, 128));
     if (!format) throw new HttpError(415, `Unsupported file type: ${fileName}`);
     const hash = crypto.createHash("sha256").update(data).digest("hex");
@@ -627,8 +631,51 @@ export class Library {
     return fixed;
   }
 
+  /**
+   * Books stored as comics that are really zipped EPUB folders (Apple Books exports, from
+   * before uploads were repacked): repack them and read their metadata again. Your edits stay.
+   */
+  async repackStored(): Promise<number> {
+    let fixed = 0;
+    for (const b of this.db.prepare("SELECT * FROM books WHERE format = 'cbz'").all() as BookRow[]) {
+      try {
+        const r = await repackEpubZip(b.file_name, await readAll((await this.storage.get(b.file_key)).stream));
+        if (!r) continue;
+        const key = `books/${b.id}/${safeName(r.fileName)}`;
+        await this.storage.put(key, r.data, CONTENT_TYPES.epub);
+        const hash = crypto.createHash("sha256").update(r.data).digest("hex");
+        this.db
+          .prepare("UPDATE books SET format = 'epub', file_key = ?, file_name = ?, file_size = ?, file_hash = ? WHERE id = ?")
+          .run(key, r.fileName, r.data.length, hash, b.id);
+        if (key !== b.file_key) await this.storage.delete(b.file_key).catch(() => {});
+
+        const meta = await extractMeta("epub", r.data);
+        const before = JSON.parse(b.meta_sources || "{}") as Sources;
+        const old = rowMeta(b);
+        const { meta: m, sources } = fromFile(meta, titleFromFileName(r.fileName));
+        for (const f of META_FIELDS) {
+          if (before[f] !== "user") continue;
+          (m as unknown as Record<string, unknown>)[f] = old[f];
+          sources[f] = "user";
+        }
+        if (before.cover === "user") sources.cover = "user";
+        else if (meta.cover) await this.putCover(b.id, meta.cover.data, meta.cover);
+        this.saveMeta(b.id, m, sources);
+        this.db
+          .prepare("UPDATE books SET text_sample = ?, meta_checked_at = NULL, ai_checked_at = NULL WHERE id = ?")
+          .run(meta.sampleText ?? null, b.id);
+        fixed++;
+      } catch (e) {
+        this.opts.log?.(`repacking ${b.id}`, e);
+      }
+    }
+    if (fixed) this.opts.log?.(`repacked ${fixed} zipped EPUB folder(s) stored as comics`);
+    return fixed;
+  }
+
   /** On startup: pick up every book that still needs an online lookup or AI pass. */
-  resumeQueue(): void {
+  async resumeQueue(): Promise<void> {
+    await this.repackStored().catch((e) => this.opts.log?.("repacking stored books", e));
     this.cleanJunk();
     void this.recolorSpines().catch((e) => this.opts.log?.("recolouring spines", e));
     const ai = aiEnabled(this.opts.ai);

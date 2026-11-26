@@ -28,7 +28,7 @@ export async function buildApp(
     library.close();
     db.close();
   });
-  app.addHook("onReady", async () => library.resumeQueue());
+  app.addHook("onReady", async () => void library.resumeQueue().catch((e) => app.log.error(e)));
 
   app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
     const status = err instanceof HttpError ? err.statusCode : (err.statusCode ?? 500);
