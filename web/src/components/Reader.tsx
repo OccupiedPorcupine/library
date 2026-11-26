@@ -189,13 +189,45 @@ function bookCss(dark: boolean) {
   `;
 }
 
+const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+
 function FoliateViewer({ book, start, goRef, onReport, onError }: EngineProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<FoliateView | null>(null);
+  // Which way the last page turn went ("left"/"right" on screen) and when, so a turn that
+  // crosses into another chapter can slide in from the same side.
+  const turnRef = useRef<{ side: -1 | 1; at: number } | null>(null);
+  const sectionRef = useRef<number | null>(null);
+
+  const turn = useCallback((side: -1 | 1) => {
+    const view = viewRef.current;
+    if (!view) return;
+    turnRef.current = { side, at: performance.now() };
+    void (side < 0 ? view.goLeft() : view.goRight());
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     const host = hostRef.current!;
+    const pageKeys = (e: KeyboardEvent) => keyTurn(e);
+    // Two-finger sideways swipe: one page per gesture, then wait for the gesture to finish.
+    let acc = 0;
+    let lockedUntil = 0;
+    let idle = 0;
+    const swipe = (e: WheelEvent) => {
+      if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+      e.preventDefault();
+      clearTimeout(idle);
+      idle = window.setTimeout(() => (acc = 0), 180);
+      const now = performance.now();
+      if (now < lockedUntil) return void (lockedUntil = now + 180);
+      acc += e.deltaX;
+      if (Math.abs(acc) < 50) return;
+      turn(acc > 0 ? 1 : -1);
+      acc = 0;
+      lockedUntil = now + 450;
+    };
+    host.addEventListener("wheel", swipe, { passive: false });
     (async () => {
       await import("foliate-js/view.js");
       const res = await fetch(api.fileUrl(book.id));
@@ -208,10 +240,36 @@ function FoliateViewer({ book, start, goRef, onReport, onError }: EngineProps) {
       host.append(view);
       viewRef.current = view;
       view.addEventListener("relocate", (e) => {
-        const loc = (e as CustomEvent<{ fraction: number; cfi: string; tocItem?: { label: string } }>).detail;
+        const loc = (e as CustomEvent<{ fraction: number; cfi: string; tocItem?: { label: string }; section?: { current: number } }>).detail;
         onReport(loc.fraction ?? 0, loc.cfi, loc.tocItem?.label?.trim());
+        // Pages within a chapter slide in the renderer itself; a new chapter is a fresh page,
+        // so slide that in from the side the reader turned towards.
+        const section = loc.section?.current ?? null;
+        const t = turnRef.current;
+        const changed = section !== sectionRef.current && sectionRef.current !== null;
+        if (changed && t && performance.now() - t.at < 1500 && !reducedMotion()) {
+          view.renderer.animate(
+            [
+              { transform: `translateX(${t.side * 38}%)`, opacity: 0.35 },
+              { transform: "translateX(0)", opacity: 1 },
+            ],
+            { duration: 360, easing: "cubic-bezier(0.22, 0.8, 0.2, 1)" },
+          );
+        }
+        // A turn can report several locations; only the chapter change uses it up.
+        if (changed) turnRef.current = null;
+        sectionRef.current = section;
+      });
+      // Keys and sideways trackpad swipes inside the page itself (it's an iframe, so these
+      // don't reach the document's own listeners).
+      view.addEventListener("load", (e) => {
+        const doc = (e as CustomEvent<{ doc: Document }>).detail.doc;
+        doc.addEventListener("keydown", pageKeys);
+        doc.addEventListener("wheel", swipe, { passive: false });
       });
       await view.open(file);
+      // Slide between pages, following a finger on touch screens (foliate's "animated" mode).
+      if (!reducedMotion()) view.renderer.setAttribute("animated", "");
       view.renderer.setAttribute("max-inline-size", "680px");
       view.renderer.setAttribute("margin", "56px");
       view.renderer.setAttribute("gap", "6%");
@@ -228,6 +286,8 @@ function FoliateViewer({ book, start, goRef, onReport, onError }: EngineProps) {
     theme.addEventListener("change", retheme);
     return () => {
       cancelled = true;
+      clearTimeout(idle);
+      host.removeEventListener("wheel", swipe);
       theme.removeEventListener("change", retheme);
       viewRef.current?.close();
       viewRef.current?.remove();
@@ -237,21 +297,21 @@ function FoliateViewer({ book, start, goRef, onReport, onError }: EngineProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [book.id]);
 
+  const keyTurn = (e: KeyboardEvent) => {
+    if (e.target instanceof HTMLElement && e.target.closest("input, textarea, .reader__toc")) return;
+    if (e.key === "ArrowLeft" || e.key === "PageUp") (e.preventDefault(), turn(-1));
+    if (e.key === "ArrowRight" || e.key === "PageDown" || e.key === " ") (e.preventDefault(), turn(1));
+  };
   useEffect(() => {
-    const key = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLElement && e.target.closest("input, textarea, .reader__toc")) return;
-      if (e.key === "ArrowLeft" || e.key === "PageUp") void viewRef.current?.goLeft();
-      if (e.key === "ArrowRight" || e.key === "PageDown" || e.key === " ") void viewRef.current?.goRight();
-    };
-    document.addEventListener("keydown", key);
-    return () => document.removeEventListener("keydown", key);
-  }, []);
+    document.addEventListener("keydown", keyTurn);
+    return () => document.removeEventListener("keydown", keyTurn);
+  });
 
   return (
     <div className="reader__paged">
-      <button type="button" className="reader__turn reader__turn--prev" aria-label="Previous page" onClick={() => void viewRef.current?.goLeft()} />
+      <button type="button" className="reader__turn reader__turn--prev" aria-label="Previous page" onClick={() => turn(-1)} />
       <div className="reader__host" ref={hostRef} />
-      <button type="button" className="reader__turn reader__turn--next" aria-label="Next page" onClick={() => void viewRef.current?.goRight()} />
+      <button type="button" className="reader__turn reader__turn--next" aria-label="Next page" onClick={() => turn(1)} />
     </div>
   );
 }
