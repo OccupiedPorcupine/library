@@ -130,6 +130,40 @@ export const api = {
     return fetch(`/api/books/${id}/cover`, { method: "PUT", body: form }).then((r) => json<BookDetail>(r));
   },
 
+  /** Move books to a shelf (from one shelf, or none for an add). `to: null` takes them off `from`. */
+  moveBooks: (bookIds: string[], to: string | null, from?: string | null) =>
+    fetch("/api/books/move", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ bookIds, to, from: from ?? null }),
+    }).then((r) => json<{ ok: true }>(r)),
+
+  setBookShelves: (id: string, shelfIds: string[]) =>
+    fetch(`/api/books/${id}/shelves`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ shelfIds }),
+    }).then((r) => json<{ ok: true }>(r)),
+
+  renameShelf: (id: string, name: string) =>
+    fetch(`/api/shelves/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name }),
+    }).then((r) => json<{ ok: true }>(r)),
+
+  deleteShelf: (id: string) =>
+    fetch(`/api/shelves/${id}`, { method: "DELETE" }).then((r) => {
+      if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+    }),
+
+  reorderShelves: (ids: string[]) =>
+    fetch("/api/shelves/order", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ids }),
+    }).then((r) => json<{ ok: true }>(r)),
+
   sortLibrary: () =>
     fetch("/api/library/sort", { method: "POST" }).then((r) => json<{ placed: number; suggestions: ShelfSuggestion[] }>(r)),
 
