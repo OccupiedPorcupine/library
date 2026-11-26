@@ -1,5 +1,7 @@
 # Deploying to the home lab
 
+> The step-by-step of the live setup is in [hosting.md](hosting.md). This page covers the general options, such as NAS and S3 storage.
+
 The app runs as one Docker container on a VM in Proxmox, reachable only over the tailnet.
 
 ## 1. Create the VM
