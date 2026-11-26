@@ -1496,3 +1496,238 @@ textarea.field__input {
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------- Preview page (#27) ---------- */
+
+@media (min-width: 980px) {
+  .panel--preview {
+    width: min(980px, calc(100vw - 48px));
+  }
+  .preview {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+    grid-template-areas:
+      "hero contents"
+      "rest contents";
+    grid-template-rows: auto 1fr;
+    column-gap: 36px;
+    align-items: start;
+  }
+  .preview__hero {
+    grid-area: hero;
+  }
+  .preview__rest {
+    grid-area: rest;
+  }
+  .preview__contents {
+    grid-area: contents;
+    position: sticky;
+    top: 0;
+    max-height: calc(100dvh - 120px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    margin-top: 0;
+    padding: 16px 16px 12px;
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius-l);
+    background: var(--surface);
+    box-shadow: inset 0 1px 0 var(--hairline);
+  }
+}
+.panel__cover.is-openable {
+  padding: 0;
+  border: 0;
+  cursor: pointer;
+  transition: transform var(--med) var(--ease), box-shadow var(--med) var(--ease);
+}
+.panel__cover.is-openable:hover {
+  transform: translateY(-3px) rotateX(2deg);
+}
+.panel__cover.is-openable:hover .panel__cover-hint,
+.panel__cover.is-openable:focus-visible .panel__cover-hint {
+  opacity: 1;
+  transform: none;
+}
+.preview__empty {
+  margin: 0;
+  font-size: 14px;
+  color: var(--ink-soft);
+}
+button.toc__row {
+  width: calc(100% + 16px);
+  border: 0;
+  background: none;
+  text-align: left;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+button.toc__row:hover,
+button.toc__row:focus-visible {
+  background: var(--surface-inset);
+}
+button.toc__row:disabled {
+  cursor: default;
+  color: var(--ink-faint);
+  background: none;
+}
+.toc__go {
+  flex: none;
+  align-self: center;
+  color: var(--ink-faint);
+  opacity: 0;
+  transform: translateX(-4px);
+  transition: opacity var(--fast), transform var(--fast);
+}
+button.toc__row:hover .toc__go,
+button.toc__row:focus-visible .toc__go {
+  opacity: 1;
+  transform: none;
+}
+@media (hover: none) {
+  .toc__go {
+    opacity: 0.6;
+    transform: none;
+  }
+}
+
+/* ---------- Reader shell ---------- */
+
+.reader {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  background: var(--skylight), var(--wall);
+  animation: fade var(--med) var(--ease);
+}
+.reader__bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: max(10px, env(safe-area-inset-top)) 16px 10px;
+  border-bottom: 1px solid var(--hairline);
+  background: color-mix(in srgb, var(--surface-raised) 85%, transparent);
+}
+.reader__title {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+}
+.reader__book {
+  font-family: var(--font-serif);
+  font-size: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.reader__where {
+  font-size: 12px;
+  color: var(--ink-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.reader__toc-btn {
+  height: 34px;
+  border-radius: var(--radius-pill);
+}
+.reader__stage {
+  position: relative;
+  min-height: 0;
+}
+.reader__paged {
+  position: absolute;
+  inset: 0;
+}
+.reader__host,
+.reader__foliate {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+/* Tap the outer edges to turn pages (and the arrow keys / swipes work too). */
+.reader__turn {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 1;
+  width: 14%;
+  max-width: 120px;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.reader__turn--prev {
+  left: 0;
+}
+.reader__turn--next {
+  right: 0;
+}
+.reader__scroll {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: grid;
+  justify-content: center;
+  align-content: start;
+  gap: 18px;
+  padding: 24px 16px 48px;
+}
+.pdf-page {
+  background: #fff;
+  border-radius: 2px;
+  box-shadow: var(--shadow-2);
+}
+.pdf-page canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+/* Dark rooms: a soft inverted page rather than a glaring white sheet. */
+:root[data-theme="dark"] .pdf-page canvas {
+  filter: invert(0.9) hue-rotate(180deg);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .pdf-page canvas {
+    filter: invert(0.9) hue-rotate(180deg);
+  }
+}
+:root[data-theme="dark"] .pdf-page {
+  background: #1b1d21;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .pdf-page {
+    background: #1b1d21;
+  }
+}
+.reader__foot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 8px 16px max(10px, env(safe-area-inset-bottom));
+  font-size: 12px;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+.meter--wide {
+  width: min(320px, 50vw);
+}
+.reader__toc {
+  position: absolute;
+  top: 60px;
+  right: 12px;
+  z-index: 2;
+  width: min(380px, calc(100vw - 24px));
+  max-height: calc(100dvh - 140px);
+  overflow-y: auto;
+  padding: 10px 14px;
+  border-radius: var(--radius-l);
+  border: 1px solid var(--hairline);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-3), var(--highlight-top);
+  animation: pop var(--med) var(--ease);
+}
