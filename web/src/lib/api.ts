@@ -22,7 +22,7 @@ export interface TocEntry {
   page?: number;
 }
 
-export type FieldSource = "filename" | "file" | "ai" | "openlibrary" | "googlebooks" | "user";
+export type FieldSource = "filename" | "file" | "estimate" | "ai" | "openlibrary" | "googlebooks" | "user";
 
 export interface BookDetail extends Book {
   subtitle: string | null;

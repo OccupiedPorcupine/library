@@ -17,6 +17,7 @@ interface Props {
 const SOURCE_NAMES: Record<FieldSource, string> = {
   filename: "the file name",
   file: "the file",
+  estimate: "an estimate from the length of the text",
   ai: "AI reading the opening pages",
   openlibrary: "Open Library",
   googlebooks: "Google Books",
@@ -224,7 +225,7 @@ function View({
   const facts: [string, string][] = [];
   if (book.publisher) facts.push(["Publisher", book.publisher]);
   if (book.published) facts.push(["Published", published(book.published)]);
-  if (book.pageCount) facts.push(["Pages", String(book.pageCount)]);
+  if (book.pageCount) facts.push(["Pages", book.sources.pageCount === "estimate" ? `About ${book.pageCount.toLocaleString()}` : book.pageCount.toLocaleString()]);
   if (book.language) facts.push(["Language", language(book.language)]);
   if (book.isbn13) facts.push(["ISBN", book.isbn13]);
   facts.push(["Format", `${book.format.toUpperCase()} · ${fileSize(book.size)}`]);
