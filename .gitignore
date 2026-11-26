@@ -1,7 +1,39 @@
+# Dependencies and build output
 node_modules/
 dist/
+*.tsbuildinfo
+
+# App data: SQLite database, uploaded books, covers
 data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Secrets: never commit these (this repo is public)
 .env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+credentials.json
+*credentials*.json
+# Cloudflare tunnel credentials and origin cert
+.cloudflared/
+cloudflared/*.json
+cert.pem
+# Tailscale auth keys / state
+tailscale/
+*.tsauthkey
+# Docker compose overrides with local settings
+docker-compose.override.yml
+compose.override.yml
+
+# Logs and OS files
 *.log
 .DS_Store
-*.tsbuildinfo
