@@ -17,6 +17,8 @@
     "vite": "^6.4.6"
   },
   "dependencies": {
+    "foliate-js": "^1.0.1",
+    "pdfjs-dist": "^5.7.284",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   }

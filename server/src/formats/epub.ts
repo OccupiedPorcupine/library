@@ -1,17 +1,115 @@
 import { XMLParser } from "fast-xml-parser";
 import JSZip from "jszip";
 import path from "node:path";
-import type { ExtractedMeta } from "./index.js";
+import { parseIsbn } from "../metadata/isbn.js";
+import type { ExtractedMeta, TocEntry } from "./index.js";
 import { imageType } from "./images.js";
 
 const xml = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: "@", removeNSPrefix: true });
+// Order-preserving parser for nav/NCX documents, where list items must stay arrays.
+const navXml = new XMLParser({
+  ignoreAttributes: false,
+  attributeNamePrefix: "@",
+  removeNSPrefix: true,
+  isArray: (name) => ["li", "navPoint", "ol", "nav"].includes(name),
+});
 
+type Node = Record<string, unknown>;
 const arr = <T>(v: T | T[] | undefined): T[] => (v === undefined ? [] : Array.isArray(v) ? v : [v]);
 const text = (v: unknown): string | undefined => {
-  if (typeof v === "string") return v.trim() || undefined;
-  if (v && typeof v === "object" && "#text" in v) return String((v as { "#text": unknown })["#text"]).trim();
+  if (typeof v === "string" || typeof v === "number") return String(v).trim() || undefined;
+  if (v && typeof v === "object" && "#text" in v) return String((v as { "#text": unknown })["#text"]).trim() || undefined;
   return undefined;
 };
+/** All text inside a node, e.g. <a><span>1.</span> Intro</a>. */
+const deepText = (v: unknown): string => {
+  if (typeof v === "string" || typeof v === "number") return String(v);
+  if (Array.isArray(v)) return v.map(deepText).join(" ");
+  if (v && typeof v === "object")
+    return Object.entries(v)
+      .filter(([k]) => !k.startsWith("@"))
+      .map(([, c]) => deepText(c))
+      .join(" ");
+  return "";
+};
+const clean = (s: string) => s.replace(/\s+/g, " ").trim();
+const stripHtml = (s: string) =>
+  clean(
+    s
+      .replace(/<\/(p|div|br)>/gi, "\n")
+      .replace(/<[^>]+>/g, "")
+      .replace(/&nbsp;/g, " ")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'"),
+  );
+
+const MAX_TOC = 2000;
+/** About one printed page of a typical trade paperback (~300 words). */
+const CHARS_PER_PAGE = 1800;
+
+/** Entries in an EPUB 3 nav document's page-list (the printed edition's page numbers). */
+function pageListCount(navText: string): number {
+  const m = /<nav\b[^>]*epub:type="[^"]*\bpage-list\b[^"]*"[^>]*>([\s\S]*?)<\/nav>/i.exec(navText);
+  return m ? (m[1]!.match(/<a\b/gi) ?? []).length : 0;
+}
+
+function navToc(doc: Node, docPath: string): TocEntry[] {
+  const out: TocEntry[] = [];
+  const findNav = (n: unknown): Node | undefined => {
+    if (!n || typeof n !== "object") return undefined;
+    for (const [k, v] of Object.entries(n)) {
+      if (k === "nav") {
+        const navs = arr(v as Node[]);
+        return navs.find((x) => String(x["@type"] ?? "").split(/\s+/).includes("toc")) ?? navs[0];
+      }
+      if (!k.startsWith("@")) {
+        for (const c of arr(v)) {
+          const hit = findNav(c);
+          if (hit) return hit;
+        }
+      }
+    }
+    return undefined;
+  };
+  const walk = (ol: Node | undefined, level: number) => {
+    for (const li of arr(ol?.li as Node[])) {
+      if (out.length >= MAX_TOC) return;
+      const a = (li.a ?? li.span) as Node | string | undefined;
+      const title = clean(deepText(a));
+      const href = typeof a === "object" ? (a?.["@href"] as string | undefined) : undefined;
+      if (title) out.push({ title, level, href: href ? resolveHref(docPath, href) : undefined });
+      for (const sub of arr(li.ol as Node[])) walk(sub, level + 1);
+    }
+  };
+  const nav = findNav(doc);
+  for (const ol of arr(nav?.ol as Node[])) walk(ol, 0);
+  return out;
+}
+
+function ncxToc(doc: Node, docPath: string): TocEntry[] {
+  const out: TocEntry[] = [];
+  const walk = (points: Node[], level: number) => {
+    for (const p of points) {
+      if (out.length >= MAX_TOC) return;
+      const title = clean(deepText((p.navLabel as Node | undefined)?.text));
+      const src = (p.content as Node | undefined)?.["@src"] as string | undefined;
+      if (title) out.push({ title, level, href: src ? resolveHref(docPath, src) : undefined });
+      walk(arr(p.navPoint as Node[]), level + 1);
+    }
+  };
+  walk(arr(((doc.ncx as Node | undefined)?.navMap as Node | undefined)?.navPoint as Node[]), 0);
+  return out;
+}
+
+/** Makes a TOC link relative to the archive root, keeping any #fragment. */
+function resolveHref(fromDoc: string, href: string): string {
+  const [file, frag] = href.split("#");
+  const full = file ? path.posix.normalize(path.posix.join(path.posix.dirname(fromDoc), decodeURIComponent(file))) : fromDoc;
+  return frag ? `${full}#${frag}` : full;
+}
 
 export async function extractEpub(data: Buffer): Promise<ExtractedMeta> {
   const zip = await JSZip.loadAsync(data);
@@ -24,24 +122,129 @@ export async function extractEpub(data: Buffer): Promise<ExtractedMeta> {
   if (!opfText) return {};
   const pkg = xml.parse(opfText)?.package;
   const meta = pkg?.metadata ?? {};
-  const title = text(arr(meta.title)[0]);
-  const authors = arr(meta.creator).map(text).filter(Boolean) as string[];
+  const metas = arr(meta.meta) as Node[];
+  const opfDir = path.posix.dirname(opfPath);
+
+  // EPUB 3 refinements: <meta refines="#id" property="title-type">subtitle</meta>
+  const refine = (id: string | undefined, prop: string) =>
+    id ? text(metas.find((m) => m["@refines"] === `#${id}` && m["@property"] === prop)) : undefined;
+
+  const titles = arr(meta.title) as unknown[];
+  const titleOf = (t: unknown) => text(t);
+  const idOf = (t: unknown) => (t && typeof t === "object" ? ((t as Node)["@id"] as string | undefined) : undefined);
+  const main = titles.find((t) => refine(idOf(t), "title-type") === "main") ?? titles[0];
+  const sub = titles.find((t) => refine(idOf(t), "title-type") === "subtitle");
+  const authors = (arr(meta.creator) as unknown[])
+    .filter((c) => {
+      const role = (c as Node)?.["@role"] ?? refine(idOf(c), "role");
+      return !role || role === "aut";
+    })
+    .map(text)
+    .filter(Boolean) as string[];
+
+  let isbn: ReturnType<typeof parseIsbn> = null;
+  for (const id of arr(meta.identifier)) {
+    isbn = parseIsbn(text(id));
+    if (isbn) break;
+  }
+
+  // Series: calibre's <meta name="calibre:series">, or EPUB 3 belongs-to-collection.
+  let series = text(metas.find((m) => m["@name"] === "calibre:series")?.["@content"]);
+  let seriesIndex = Number(metas.find((m) => m["@name"] === "calibre:series_index")?.["@content"]) || undefined;
+  if (!series) {
+    const coll = metas.find((m) => m["@property"] === "belongs-to-collection");
+    series = text(coll);
+    if (coll) seriesIndex = Number(refine(coll["@id"] as string, "group-position")) || undefined;
+  }
+
+  const description = text(arr(meta.description)[0]);
+  const subjects = [...new Set((arr(meta.subject) as unknown[]).map(text).filter(Boolean) as string[])];
 
   // Find the cover: EPUB 3 "cover-image" property, else EPUB 2 <meta name="cover">.
   const items = arr(pkg?.manifest?.item) as Record<string, string>[];
   let coverItem = items.find((i) => (i["@properties"] ?? "").split(/\s+/).includes("cover-image"));
   if (!coverItem) {
-    const coverId = (arr(meta.meta) as Record<string, string>[]).find((m) => m["@name"] === "cover")?.["@content"];
+    const coverId = (metas as Record<string, string>[]).find((m) => m["@name"] === "cover")?.["@content"];
     coverItem = items.find((i) => i["@id"] === coverId);
   }
   if (!coverItem) coverItem = items.find((i) => /cover/i.test(i["@id"] ?? "") && /^image\//.test(i["@media-type"] ?? ""));
 
   let cover: ExtractedMeta["cover"];
   if (coverItem?.["@href"]) {
-    const href = path.posix.join(path.posix.dirname(opfPath), decodeURIComponent(coverItem["@href"]));
+    const href = path.posix.join(opfDir, decodeURIComponent(coverItem["@href"]));
     const bytes = await zip.file(href)?.async("nodebuffer");
     const type = imageType(href);
     if (bytes && type) cover = { data: bytes, ...type };
   }
-  return { title, author: authors.join(", ") || undefined, cover };
+
+  // Table of contents: EPUB 3 nav document, else the EPUB 2 NCX.
+  let toc: TocEntry[] = [];
+  let printedPages = 0;
+  try {
+    const navItem = items.find((i) => (i["@properties"] ?? "").split(/\s+/).includes("nav"));
+    if (navItem?.["@href"]) {
+      const navPath = path.posix.join(opfDir, decodeURIComponent(navItem["@href"]));
+      const navText = await zip.file(navPath)?.async("string");
+      if (navText) toc = navToc(navXml.parse(navText), navPath);
+      if (navText) printedPages = pageListCount(navText);
+    }
+    if (!toc.length) {
+      const ncxId = pkg?.spine?.["@toc"] as string | undefined;
+      const ncxItem = items.find((i) => i["@id"] === ncxId) ?? items.find((i) => i["@media-type"] === "application/x-dtbncx+xml");
+      if (ncxItem?.["@href"]) {
+        const ncxPath = path.posix.join(opfDir, decodeURIComponent(ncxItem["@href"]));
+        const ncxText = await zip.file(ncxPath)?.async("string");
+        if (ncxText) toc = ncxToc(navXml.parse(ncxText), ncxPath);
+      }
+    }
+    if (!printedPages) {
+      const ncxItem = items.find((i) => i["@media-type"] === "application/x-dtbncx+xml");
+      const ncxText = ncxItem?.["@href"] ? await zip.file(path.posix.join(opfDir, decodeURIComponent(ncxItem["@href"])))?.async("string") : undefined;
+      if (ncxText) printedPages = (ncxText.match(/<pageTarget\b/g) ?? []).length;
+    }
+  } catch {
+    // A broken TOC shouldn't lose the rest of the metadata.
+  }
+
+  // Text of the first few spine documents (title page, copyright page, opening chapter) for
+  // the AI, and the length of the whole text for a page estimate.
+  let sampleText = "";
+  let textLength = 0;
+  try {
+    const byId = new Map(items.map((i) => [i["@id"], i]));
+    for (const ref of arr(pkg?.spine?.itemref) as Record<string, string>[]) {
+      const it = byId.get(ref["@idref"]);
+      if (!it?.["@href"] || !/html|xml/.test(it["@media-type"] ?? "")) continue;
+      const html = await zip.file(path.posix.join(opfDir, decodeURIComponent(it["@href"])))?.async("string");
+      if (!html) continue;
+      const body = stripHtml(html.replace(/<(head|style|script)[\s\S]*?<\/\1>/gi, " "));
+      textLength += body.replace(/\s+/g, " ").length;
+      if (sampleText.length < 8000) sampleText += body + "\n\n";
+    }
+  } catch {
+    // optional
+  }
+  // The printed edition's page list when the book has one, else roughly a printed page per
+  // CHARS_PER_PAGE characters.
+  const pageCount = printedPages || (textLength > 0 ? Math.max(1, Math.round(textLength / CHARS_PER_PAGE)) : undefined);
+
+  return {
+    sampleText: sampleText.trim().slice(0, 8000) || undefined,
+    title: titleOf(main),
+    subtitle: titleOf(sub),
+    author: authors.join(", ") || undefined,
+    series,
+    seriesIndex,
+    description: description ? stripHtml(description) : undefined,
+    publisher: text(arr(meta.publisher)[0]),
+    published: text(arr(meta.date)[0])?.slice(0, 10),
+    language: text(arr(meta.language)[0]),
+    isbn10: isbn?.isbn10,
+    isbn13: isbn?.isbn13,
+    subjects: subjects.length ? subjects : undefined,
+    toc: toc.length ? toc : undefined,
+    pageCount,
+    pageCountEstimated: !printedPages && pageCount !== undefined,
+    cover,
+  };
 }

@@ -1,20 +1,36 @@
 import multipart from "@fastify/multipart";
+import type { ChatAction } from "./metadata/ai.js";
 import fastifyStatic from "@fastify/static";
 import Fastify from "fastify";
 import fs from "node:fs";
 import type { Config } from "./config.js";
+import { registerAnnotationRoutes } from "./annotations.js";
 import { openDb } from "./db.js";
 import { CONTENT_TYPES } from "./formats/index.js";
-import { HttpError, Library, toDto } from "./library.js";
+import { HttpError, Library, type MetadataPatch } from "./library.js";
 import { createStorage, type Storage } from "./storage/index.js";
 
-export async function buildApp(config: Config, opts: { storage?: Storage; logger?: boolean } = {}) {
+export async function buildApp(
+  config: Config,
+  opts: { storage?: Storage; logger?: boolean; fetch?: typeof fetch; background?: boolean } = {},
+) {
   const app = Fastify({ logger: opts.logger ?? true });
   const storage = opts.storage ?? createStorage(config.storage);
   await storage.check();
   const db = openDb(config.dbPath);
-  const library = new Library(db, storage);
-  app.addHook("onClose", async () => db.close());
+  const library = new Library(db, storage, {
+    online: config.metadataOnline,
+    onlineOptions: { googleBooksKey: config.googleBooksApiKey, fetch: opts.fetch },
+    ai: { ...config.openai, fetch: opts.fetch },
+    aiAutoShelve: config.aiAutoShelve,
+    background: opts.background,
+    log: (msg, err) => app.log.warn({ err }, msg),
+  });
+  app.addHook("onClose", async () => {
+    library.close();
+    db.close();
+  });
+  app.addHook("onReady", async () => void library.resumeQueue().catch((e) => app.log.error(e)));
 
   app.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
     const status = err instanceof HttpError ? err.statusCode : (err.statusCode ?? 500);
@@ -27,6 +43,9 @@ export async function buildApp(config: Config, opts: { storage?: Storage; logger
   app.get("/api/health", async () => ({ ok: true, storage: storage.name }));
 
   app.get("/api/library", async () => library.overview());
+
+  // Highlights, notes and bookmarks (#48).
+  registerAnnotationRoutes(app, db);
 
   app.post("/api/library/scan", async () => library.scan());
 
@@ -45,7 +64,40 @@ export async function buildApp(config: Config, opts: { storage?: Storage; logger
   });
 
   app.get<{ Params: { id: string } }>("/api/books/:id", async (req) => {
-    return toDto(library.getBook(req.params.id));
+    return library.getDetail(req.params.id);
+  });
+
+  // Manual edits; edited fields are never overwritten by online lookups.
+  app.patch<{ Params: { id: string }; Body: MetadataPatch }>(
+    "/api/books/:id/metadata",
+    { schema: { body: { type: "object" } } },
+    async (req) => library.updateMetadata(req.params.id, req.body),
+  );
+
+  // Look the book up on Open Library / Google Books now.
+  // Runs the AI pass again first (when set up), so the online search uses its cleaned title.
+  app.post<{ Params: { id: string } }>("/api/books/:id/metadata/refresh", async (req) => {
+    await library.aiPass(req.params.id, true).catch((e: Error) => app.log.warn({ err: e }, "AI metadata failed"));
+    return library.refreshMetadata(req.params.id);
+  });
+
+  // AI shelf sorting: places unshelved books and suggests new shelves.
+  app.post("/api/library/sort", async () => library.sortBooks());
+
+  app.post<{ Params: { id: string }; Body: { name?: string } }>("/api/shelf-suggestions/:id/accept", async (req, reply) =>
+    reply.status(201).send(library.acceptSuggestion(req.params.id, req.body?.name)),
+  );
+
+  app.delete<{ Params: { id: string } }>("/api/shelf-suggestions/:id", async (req, reply) => {
+    library.dismissSuggestion(req.params.id);
+    reply.status(204).send();
+  });
+
+  // Replace the cover with an uploaded image.
+  app.put<{ Params: { id: string } }>("/api/books/:id/cover", async (req) => {
+    const part = await req.file();
+    if (!part) throw new HttpError(400, "No image uploaded");
+    return library.setUserCover(req.params.id, await part.toBuffer());
   });
 
   app.delete<{ Params: { id: string } }>("/api/books/:id", async (req, reply) => {
@@ -125,6 +177,78 @@ export async function buildApp(config: Config, opts: { storage?: Storage; logger
     library.updateShelf(req.params.id, req.body ?? {});
     return { ok: true };
   });
+
+  app.put<{ Body: { ids: string[] } }>(
+    "/api/shelves/order",
+    { schema: { body: { type: "object", required: ["ids"], properties: { ids: { type: "array", items: { type: "string" } } } } } },
+    async (req) => {
+      library.reorderShelves(req.body.ids);
+      return { ok: true };
+    },
+  );
+
+  // Move (or with no "from", add) books to a shelf. A null "to" takes them off "from".
+  app.post<{ Body: { bookIds: string[]; to: string | null; from?: string | null } }>(
+    "/api/books/move",
+    {
+      schema: {
+        body: {
+          type: "object",
+          required: ["bookIds", "to"],
+          properties: {
+            bookIds: { type: "array", items: { type: "string" }, minItems: 1 },
+            to: { type: ["string", "null"] },
+            from: { type: ["string", "null"] },
+          },
+        },
+      },
+    },
+    async (req) => {
+      library.moveBooks(req.body.bookIds, req.body.to, req.body.from ?? null);
+      return { ok: true };
+    },
+  );
+
+  // Chat with the AI librarian. It only proposes changes; each is applied on its own once confirmed.
+  app.post<{ Body: { messages: { role: "user" | "assistant"; content: string }[] } }>(
+    "/api/chat",
+    {
+      schema: {
+        body: {
+          type: "object",
+          required: ["messages"],
+          properties: {
+            messages: {
+              type: "array",
+              minItems: 1,
+              maxItems: 40,
+              items: {
+                type: "object",
+                required: ["role", "content"],
+                properties: { role: { enum: ["user", "assistant"] }, content: { type: "string", maxLength: 8000 } },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (req) => library.chat(req.body.messages),
+  );
+  app.post<{ Body: { action: ChatAction } }>(
+    "/api/chat/apply",
+    { schema: { body: { type: "object", required: ["action"], properties: { action: { type: "object" } } } } },
+    async (req) => {
+      const a = req.body.action;
+      return library.applyChatAction({
+        type: a.type,
+        bookIds: Array.isArray(a.bookIds) ? a.bookIds.map(String) : [],
+        shelfId: a.shelfId ?? null,
+        fromShelfId: a.fromShelfId ?? null,
+        name: a.name ?? null,
+        summary: String(a.summary ?? ""),
+      });
+    },
+  );
 
   app.delete<{ Params: { id: string } }>("/api/shelves/:id", async (req, reply) => {
     library.deleteShelf(req.params.id);

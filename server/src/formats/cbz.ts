@@ -23,7 +23,9 @@ export async function extractCbz(data: Buffer): Promise<ExtractedMeta> {
     meta.title = pick("Title") ?? (series ? `${series}${number ? ` #${number}` : ""}` : undefined);
     meta.author = pick("Writer");
   }
-  const first = comicPages(zip)[0];
+  const pages = comicPages(zip);
+  if (pages.length) meta.pageCount = pages.length;
+  const first = pages[0];
   if (first) {
     const bytes = await zip.file(first)!.async("nodebuffer");
     meta.cover = { data: bytes, ...imageType(first)! };
