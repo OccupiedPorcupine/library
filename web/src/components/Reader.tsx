@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import type { FoliateView } from "foliate-js/view.js";
 import { api, type BookDetail, type TocEntry } from "../lib/api";
 
@@ -264,6 +264,8 @@ function PdfView({ book, start, goRef, onReport, onError }: EngineProps) {
   const [ratio, setRatio] = useState(1.414);
   const [width, setWidth] = useState(800);
   const rendered = useRef(new Map<number, { cancel(): void }>());
+  // The page to keep in view while page sizes settle (first load, window resizes).
+  const anchor = useRef(Math.max(1, Number(start) || 1));
 
   useEffect(() => {
     let cancelled = false;
@@ -302,15 +304,13 @@ function PdfView({ book, start, goRef, onReport, onError }: EngineProps) {
   }, []);
 
   useEffect(() => {
-    goRef.current = (t) => goToPage(Number(t));
+    goRef.current = (t) => ((anchor.current = Number(t)), goToPage(Number(t)));
   }, [goRef, goToPage]);
 
-  // Jump to the starting page once the placeholders exist.
-  useEffect(() => {
-    if (!doc) return;
-    const p = Number(start);
-    if (p > 1) requestAnimationFrame(() => goToPage(Math.min(p, doc.numPages), false));
-  }, [doc, start, goToPage]);
+  // Keep the anchor page in view whenever page sizes change, including the first layout.
+  useLayoutEffect(() => {
+    if (doc && anchor.current > 1) goToPage(Math.min(anchor.current, doc.numPages), false);
+  }, [doc, width, goToPage]);
 
   // Render pages near the viewport; drop canvases far away to keep memory flat on long PDFs.
   useEffect(() => {
@@ -369,6 +369,7 @@ function PdfView({ book, start, goRef, onReport, onError }: EngineProps) {
           if (s.offsetTop > mid) break;
           page = Number(s.dataset.page);
         }
+        anchor.current = page;
         const label = [...book.toc].reverse().find((t) => t.page != null && t.page <= page)?.title;
         onReport(doc.numPages > 1 ? (page - 1) / (doc.numPages - 1) : 1, String(page), label ? `${label} · p. ${page}` : `Page ${page} of ${doc.numPages}`);
       });
