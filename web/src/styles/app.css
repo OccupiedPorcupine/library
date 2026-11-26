@@ -1855,3 +1855,118 @@ button.toc__row:focus-visible .toc__go {
     margin: 10px auto 0;
   }
 }
+
+/* Shelf picker in the preview */
+.pill--toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  transition: background var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+.pill--toggle:hover {
+  border-color: var(--hairline-strong);
+}
+.pill--toggle.is-on {
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--accent-ink);
+}
+
+.btn--danger {
+  background: var(--danger);
+  color: var(--surface-raised);
+  border-color: transparent;
+}
+
+/* Shelf editor */
+.editor {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(480px, calc(100vw - 32px));
+  max-height: calc(100dvh - 48px);
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-l);
+  border: 1px solid var(--hairline);
+  background: var(--skylight), var(--surface-raised);
+  box-shadow: var(--shadow-3), var(--highlight-top);
+  animation: fade var(--med) var(--ease);
+}
+.editor:focus {
+  outline: none;
+}
+.editor__hint {
+  margin: 0;
+  padding: 0 24px 10px;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+.editor__list {
+  flex: 1;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px 16px;
+  list-style: none;
+}
+.editor__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--hairline);
+  background: var(--surface-raised);
+}
+.editor__row.is-dragging {
+  position: relative;
+  z-index: 1;
+  border-radius: var(--radius-s);
+  box-shadow: var(--shadow-2);
+}
+.editor__handle {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 34px;
+  border: 0;
+  border-radius: var(--radius-s);
+  background: none;
+  color: var(--ink-faint);
+  cursor: grab;
+  touch-action: none;
+}
+.editor__handle:active {
+  cursor: grabbing;
+}
+.editor__name {
+  flex: 1;
+  min-width: 0;
+}
+.editor__count {
+  min-width: 2ch;
+  text-align: right;
+  font-size: 12px;
+  color: var(--ink-faint);
+  font-variant-numeric: tabular-nums;
+}
+.editor__confirm {
+  display: flex;
+  gap: 6px;
+}
+.editor__confirm .btn {
+  height: 32px;
+  padding: 0 10px;
+}
+.editor__add {
+  display: flex;
+  gap: 8px;
+  padding: 14px 16px 16px;
+}
+.editor__add .field__input {
+  flex: 1;
+  min-width: 0;
+}
