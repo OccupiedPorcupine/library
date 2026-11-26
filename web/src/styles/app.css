@@ -120,9 +120,11 @@ input {
   display: flex;
   align-items: center;
   gap: 20px;
-  height: 64px;
-  padding: 0 max(16px, env(safe-area-inset-left)) 0 max(16px, env(safe-area-inset-left));
-  padding-inline: clamp(16px, 4vw, 48px);
+  /* Full screen from the Home Screen: keep clear of the status bar and the notch. */
+  height: calc(64px + env(safe-area-inset-top));
+  padding-top: env(safe-area-inset-top);
+  padding-left: max(clamp(16px, 4vw, 48px), env(safe-area-inset-left));
+  padding-right: max(clamp(16px, 4vw, 48px), env(safe-area-inset-right));
   background: color-mix(in srgb, var(--wall-top) 92%, transparent);
   border-bottom: 1px solid var(--hairline);
 }
@@ -232,7 +234,7 @@ input {
 
 .tabs-wrap {
   position: sticky;
-  top: 72px;
+  top: calc(72px + env(safe-area-inset-top));
   z-index: 15;
   display: flex;
   justify-content: center;
@@ -860,7 +862,7 @@ input {
     display: none;
   }
   .tabs-wrap {
-    top: 70px;
+    top: calc(70px + env(safe-area-inset-top));
   }
   .tabs__tab {
     height: 34px;
@@ -1031,7 +1033,7 @@ input {
 }
 .panel {
   position: absolute;
-  top: 12px;
+  top: max(12px, env(safe-area-inset-top));
   right: 12px;
   bottom: 12px;
   width: min(540px, calc(100vw - 24px));
@@ -1744,7 +1746,7 @@ button.toc__row:focus-visible .toc__go {
 }
 .reader__toc {
   position: absolute;
-  top: 60px;
+  top: calc(60px + env(safe-area-inset-top));
   right: 12px;
   z-index: 2;
   width: min(380px, calc(100vw - 24px));
