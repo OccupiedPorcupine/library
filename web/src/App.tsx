@@ -7,6 +7,7 @@ import { ShelfSuggestions, Spark } from "./components/ShelfSuggestions";
 import { ShelfEditor } from "./components/ShelfEditor";
 import { ShelfTabs } from "./components/ShelfTabs";
 import { api, type Book, type LibraryOverview } from "./lib/api";
+import type { BookDrop } from "./lib/bookDrag";
 
 const UNSHELVED = "unshelved";
 /** Binding colours for books that are still uploading (the server picks the real one). */
@@ -100,11 +101,42 @@ export function App() {
     [data],
   );
 
+  // An action offered on the toast (Undo), cleared with it.
+  const [toastAction, setToastAction] = useState<{ label: string; run: () => void; for: string } | null>(null);
+  const action = toastAction && toastAction.for === toast ? toastAction : null;
   useEffect(() => {
-    if (!toast) return;
-    const t = setTimeout(() => setToast(null), 4000);
+    if (!toast) return void setToastAction(null);
+    const t = setTimeout(() => setToast(null), action ? 7000 : 4000);
     return () => clearTimeout(t);
-  }, [toast]);
+  }, [toast, action]);
+
+  /** A book dragged from one shelf onto another (or onto Unshelved, to take it off). */
+  const moveBook = useCallback(
+    async ({ book, from, to, copy }: BookDrop) => {
+      const fromId = from === UNSHELVED ? null : from;
+      const toId = to === UNSHELVED ? null : to;
+      if (fromId === toId || (!toId && (copy || !fromId))) return;
+      const name = (sid: string | null) => data?.shelves.find((s) => s.id === sid)?.name ?? "Unshelved";
+      try {
+        await api.moveBooks([book.id], toId, copy ? null : fromId);
+        await load();
+        const text = toId ? `${copy ? "Added" : "Moved"} “${book.title}” to ${name(toId)}` : `Took “${book.title}” off ${name(fromId)}`;
+        setToast(text);
+        setToastAction({
+          for: text,
+          label: "Undo",
+          run: () =>
+            void (toId ? api.moveBooks([book.id], copy ? null : fromId, toId) : api.moveBooks([book.id], fromId))
+              .then(load)
+              .then(() => setToast(null))
+              .catch((e: Error) => setToast(e.message)),
+        });
+      } catch (e) {
+        setToast((e as Error).message);
+      }
+    },
+    [data, load],
+  );
 
   const upload = useCallback(
     async (files: File[], shelfId?: string) => {
@@ -271,6 +303,7 @@ export function App() {
                   name={s.name}
                   books={s.books}
                   onDetails={openDetails}
+                  onMove={moveBook}
                   onRead={(b) => (READABLE.has(b.format) ? openReader(b.id) : window.open(api.fileUrl(b.id), "_blank", "noopener"))}
                 />
               ))}
@@ -304,8 +337,13 @@ export function App() {
           <div className="dropzone__card">Drop to add to your library, or onto a shelf to put it there</div>
         </div>
       )}
-      <div className={`toast${toast ? " is-visible" : ""}`} role="status">
+      <div className={`toast${toast ? " is-visible" : ""}${action ? " has-action" : ""}`} role="status">
         {toast}
+        {action && (
+          <button type="button" className="toast__action" onClick={action.run}>
+            {action.label}
+          </button>
+        )}
       </div>
     </div>
   );
