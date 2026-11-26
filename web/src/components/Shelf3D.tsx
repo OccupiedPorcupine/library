@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react";
 import { api, type Book } from "../lib/api";
 import { hash } from "../lib/color";
+import { pagesOf, spineWidth, fitSpine, shortAuthor } from "../lib/spine";
 import { BookTape, type TapeGeometry } from "./BookTape";
 
 interface Props {
@@ -51,12 +52,13 @@ export function Shelf3D({ index, id, name, books }: Props) {
   const wheeling = useRef(false);
   const wheelTimer = useRef(0);
 
-  // Per-book shape: varied spine widths and heights, stable per book.
+  // Per-book shape: thickness from the book's length, height varied a little, spine text fitted.
   const geo = useMemo<TapeGeometry[]>(() => {
-    const k = size.h / 300;
+    const k = size.h / 360;
     return books.map((b) => {
-      const h = hash(b.id);
-      return { ws: Math.round((34 + (h % 6) * 3.4) * k), hh: 0.86 + ((h >>> 5) % 8) * 0.02 };
+      const hh = 0.86 + ((hash(b.id) >>> 5) % 8) * 0.02;
+      const ws = spineWidth(pagesOf(b), k);
+      return { ws, hh, ...fitSpine(b.title, b.author ? shortAuthor(b.author) : null, ws, size.h * hh) };
     });
   }, [books, size.h]);
 
@@ -164,7 +166,7 @@ export function Shelf3D({ index, id, name, books }: Props) {
     if (!el) return;
     const ro = new ResizeObserver(([e]) => {
       const w = e!.contentRect.width;
-      setSize({ w, h: w < 720 ? 210 : 290 });
+      setSize({ w, h: w < 720 ? 250 : 360 });
     });
     ro.observe(el);
     return () => ro.disconnect();
