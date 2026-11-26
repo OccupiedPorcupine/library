@@ -194,6 +194,7 @@ export function Shelf3D({ index, id, name, books }: Props) {
     drag.current = { x: e.clientX, y: e.clientY, lx: e.clientX, lt: now, pos: pos.current, v: 0, axis: "", id: e.pointerId };
   };
   const onPointerMove = (e: PointerEvent) => {
+    cursorRef.current?.classList.add("is-on");
     moveCursor(e);
     tilt(e);
     const d = drag.current;
@@ -273,6 +274,31 @@ export function Shelf3D({ index, id, name, books }: Props) {
     if (e.key === "End") (goTo(start + n - 1), e.preventDefault());
     if (e.key === "Enter" && n) open(books[mod(target.current, n)]!);
   };
+
+  // Arrow keys also browse the shelf in the middle of the screen, without focusing it first.
+  const keyRef = useRef(onKey);
+  keyRef.current = onKey;
+  useEffect(() => {
+    const key = (e: globalThis.KeyboardEvent) => {
+      const t = e.target as HTMLElement;
+      if (e.metaKey || e.ctrlKey || e.altKey || t.closest("input, textarea, select, [role=dialog], .stage")) return;
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      const r = stageRef.current?.getBoundingClientRect();
+      const mid = innerHeight / 2;
+      if (!r || r.top > mid || r.bottom + 120 < mid) return;
+      keyRef.current(e as unknown as KeyboardEvent);
+    };
+    document.addEventListener("keydown", key);
+    return () => document.removeEventListener("keydown", key);
+  }, []);
+
+  // Scrolling the page moves the shelf out from under a still pointer: hide the round cursor.
+  useEffect(() => {
+    if (!finePointer) return;
+    const hide = () => cursorRef.current?.classList.remove("is-on");
+    addEventListener("scroll", hide, { passive: true });
+    return () => removeEventListener("scroll", hide);
+  }, []);
 
   // The view tilts a little towards the pointer, so the books feel solid.
   const tilt = (e: PointerEvent) => {
