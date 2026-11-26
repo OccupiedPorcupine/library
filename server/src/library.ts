@@ -679,6 +679,24 @@ export class Library {
     if (res.changes === 0) throw new HttpError(404, "Shelf not found");
   }
 
+  /** Puts shelves in the given order (ids not listed keep their place after these). */
+  reorderShelves(ids: string[]): void {
+    const set = this.db.prepare("UPDATE shelves SET position = ? WHERE id = ?");
+    this.db.transaction(() => ids.forEach((id, i) => set.run(i, id)))();
+  }
+
+  /** Moves books onto a shelf; from a given shelf (a move) or from none (an add). null target = take off `from`. */
+  moveBooks(bookIds: string[], toShelfId: string | null, fromShelfId: string | null): void {
+    if (toShelfId && !this.db.prepare("SELECT 1 FROM shelves WHERE id = ?").get(toShelfId)) throw new HttpError(404, "Shelf not found");
+    this.db.transaction(() => {
+      for (const id of bookIds) {
+        this.getBook(id);
+        if (fromShelfId && fromShelfId !== toShelfId) this.db.prepare("DELETE FROM shelf_books WHERE shelf_id = ? AND book_id = ?").run(fromShelfId, id);
+        if (toShelfId) this.addToShelf(toShelfId, id);
+      }
+    })();
+  }
+
   deleteShelf(id: string): void {
     this.db.prepare("DELETE FROM shelves WHERE id = ?").run(id);
   }
