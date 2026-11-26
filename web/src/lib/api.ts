@@ -82,6 +82,21 @@ async function json<T>(res: Response): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+/** A change the librarian proposes; nothing happens until it's confirmed. */
+export interface ChatAction {
+  type: "move_books" | "add_to_shelf" | "remove_from_shelf" | "create_shelf" | "rename_shelf" | "delete_shelf" | "open_book";
+  bookIds: string[];
+  shelfId: string | null;
+  fromShelfId: string | null;
+  name: string | null;
+  summary: string;
+}
+
 export const api = {
   library: () => fetch("/api/library").then((r) => json<LibraryOverview>(r)),
 
@@ -164,6 +179,20 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ ids }),
     }).then((r) => json<{ ok: true }>(r)),
+
+  chat: (messages: ChatMessage[]) =>
+    fetch("/api/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ messages }),
+    }).then((r) => json<{ reply: string; actions: ChatAction[] }>(r)),
+
+  applyChatAction: (action: ChatAction) =>
+    fetch("/api/chat/apply", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action }),
+    }).then((r) => json<{ ok: true; openBookId?: string; shelfId?: string }>(r)),
 
   sortLibrary: () =>
     fetch("/api/library/sort", { method: "POST" }).then((r) => json<{ placed: number; suggestions: ShelfSuggestion[] }>(r)),
