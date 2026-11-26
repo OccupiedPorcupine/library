@@ -36,7 +36,6 @@ const mod = (a: number, m: number) => ((a % m) + m) % m;
 export function Shelf3D({ index, id, name, books }: Props) {
   const stageRef = useRef<HTMLDivElement>(null);
   const booksRef = useRef<HTMLDivElement>(null);
-  const cursorRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 1000, h: 300 });
   // "slot" is an unbounded position along the shelf; on long shelves it wraps round.
   const [slot, setSlot] = useState(() => initialIndex(books));
@@ -194,8 +193,6 @@ export function Shelf3D({ index, id, name, books }: Props) {
     drag.current = { x: e.clientX, y: e.clientY, lx: e.clientX, lt: now, pos: pos.current, v: 0, axis: "", id: e.pointerId };
   };
   const onPointerMove = (e: PointerEvent) => {
-    cursorRef.current?.classList.add("is-on");
-    moveCursor(e);
     tilt(e);
     const d = drag.current;
     if (!d) return;
@@ -292,14 +289,6 @@ export function Shelf3D({ index, id, name, books }: Props) {
     return () => document.removeEventListener("keydown", key);
   }, []);
 
-  // Scrolling the page moves the shelf out from under a still pointer: hide the round cursor.
-  useEffect(() => {
-    if (!finePointer) return;
-    const hide = () => cursorRef.current?.classList.remove("is-on");
-    addEventListener("scroll", hide, { passive: true });
-    return () => removeEventListener("scroll", hide);
-  }, []);
-
   // The view tilts a little towards the pointer, so the books feel solid.
   const tilt = (e: PointerEvent) => {
     const el = booksRef.current;
@@ -308,16 +297,6 @@ export function Shelf3D({ index, id, name, books }: Props) {
     const nx = (e.clientX - r.left) / r.width - 0.5;
     const ny = (e.clientY - r.top) / r.height - 0.5;
     el.style.perspectiveOrigin = `${(50 - nx * 18).toFixed(1)}% ${(12 - ny * 14).toFixed(1)}%`;
-  };
-
-  // A round cursor that says what a click will do.
-  const moveCursor = (e: PointerEvent) => {
-    const c = cursorRef.current;
-    if (!c || !finePointer) return;
-    c.style.transform = `translate3d(${e.clientX}px,${e.clientY}px,0)`;
-    const el = (e.target as HTMLElement).closest<HTMLElement>(".tape");
-    const label = drag.current?.axis === "h" ? "Drag" : el && Number(el.dataset.i) === target.current ? "Open" : el ? "Pick" : "Drag";
-    if (c.dataset.label !== label) (c.dataset.label = label), (c.firstElementChild!.textContent = label);
   };
 
   const current = books[focus];
@@ -337,7 +316,7 @@ export function Shelf3D({ index, id, name, books }: Props) {
       </header>
 
       <div
-        className={`stage${finePointer ? " has-cursor" : ""}`}
+        className="stage"
         ref={stageRef}
         tabIndex={0}
         role="group"
@@ -349,9 +328,7 @@ export function Shelf3D({ index, id, name, books }: Props) {
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={() => ((drag.current = null), goTo(pos.current))}
-        onPointerEnter={() => cursorRef.current?.classList.add("is-on")}
         onPointerLeave={() => {
-          cursorRef.current?.classList.remove("is-on");
           if (booksRef.current) booksRef.current.style.perspectiveOrigin = "";
         }}
       >
@@ -367,11 +344,6 @@ export function Shelf3D({ index, id, name, books }: Props) {
             })}
         </div>
       </div>
-      {finePointer && (
-        <div className="shelf-cursor" ref={cursorRef} aria-hidden>
-          <span>Drag</span>
-        </div>
-      )}
 
       {current && (
         <div className="caption" aria-live="polite">
