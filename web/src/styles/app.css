@@ -505,7 +505,9 @@ input {
   max-width: calc(var(--ws) - 10px);
   margin: 10px 0 6px;
   writing-mode: vertical-rl;
-  font: 600 clamp(11px, 0.95vw, 13.5px) / 1.12 var(--font-serif);
+  /* Size is fitted per spine in JS (lib/spine.ts) so the whole title shows. */
+  font: 700 var(--ts, 12px) / 1.12 var(--font-sans);
+  letter-spacing: -0.005em;
   overflow: hidden;
   text-align: start;
 }
@@ -514,7 +516,7 @@ input {
   max-height: 32%;
   margin-bottom: 10px;
   writing-mode: vertical-rl;
-  font: 600 7.5px/1 var(--font-sans);
+  font: 600 var(--as, 7.5px) / 1 var(--font-sans);
   letter-spacing: 0.12em;
   text-transform: uppercase;
   white-space: nowrap;

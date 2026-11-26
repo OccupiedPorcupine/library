@@ -9,6 +9,8 @@ export interface Book {
   progress: number;
   finishedAt: string | null;
   addedAt: string;
+  /** Page count when known (from metadata); used for spine thickness. */
+  pageCount?: number | null;
   /** Set while the file is still moving (uploading now; downloading for offline later): 0 to 1. */
   transfer?: number;
 }

@@ -1,12 +1,16 @@
 import { memo, type CSSProperties } from "react";
 import type { Book } from "../lib/api";
 import { isLight } from "../lib/color";
+import { shortAuthor } from "../lib/spine";
 
 export interface TapeGeometry {
   /** Spine width in px. */
   ws: number;
   /** Height as a fraction of the shelf's book height. */
   hh: number;
+  /** Spine title and author sizes in px, fitted to the spine. */
+  ts: number;
+  as: number;
 }
 
 interface Props {
@@ -28,6 +32,8 @@ export const BookTape = memo(function BookTape({ book, index, geo }: Props) {
     "--fg": light ? "#24211c" : "#f5f1e8",
     "--ws": `${geo.ws}px`,
     "--hh": geo.hh,
+    "--ts": `${geo.ts}px`,
+    "--as": `${geo.as}px`,
     "--p": book.finishedAt ? 1 : book.progress,
     ...(book.transfer !== undefined && { "--up": book.transfer }),
   } as CSSProperties;
@@ -61,11 +67,3 @@ export const BookTape = memo(function BookTape({ book, index, geo }: Props) {
     </div>
   );
 });
-
-function shortAuthor(a: string): string {
-  const etAl = /\s+et al\.?\s*$/i;
-  const first = a.replace(etAl, "").split(/,| & | and /)[0]!.trim();
-  const parts = first.split(/\s+/);
-  const last = parts[parts.length - 1] ?? first;
-  return etAl.test(a) || first !== a.trim() ? `${last} et al.` : last;
-}
