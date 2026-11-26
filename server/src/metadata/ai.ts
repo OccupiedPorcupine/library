@@ -15,7 +15,9 @@ export interface AiOptions {
 
 export const aiEnabled = (o: AiOptions | undefined): o is AiOptions & { apiKey: string } => !!o?.apiKey;
 
-async function chatJson<T>(o: AiOptions, name: string, schema: object, system: string, user: string): Promise<T> {
+type ChatMessage = { role: "user" | "assistant"; content: string };
+
+async function chatJson<T>(o: AiOptions, name: string, schema: object, system: string, user: string | ChatMessage[], temperature = 0): Promise<T> {
   const f = o.fetch ?? fetch;
   const res = await f(`${o.baseUrl.replace(/\/$/, "")}/chat/completions`, {
     method: "POST",
@@ -23,11 +25,8 @@ async function chatJson<T>(o: AiOptions, name: string, schema: object, system: s
     signal: AbortSignal.timeout(o.timeoutMs ?? 60_000),
     body: JSON.stringify({
       model: o.model,
-      temperature: 0,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
+      temperature,
+      messages: [{ role: "system", content: system }, ...(typeof user === "string" ? [{ role: "user", content: user }] : user)],
       response_format: { type: "json_schema", json_schema: { name, strict: true, schema } },
     }),
   });
@@ -179,4 +178,72 @@ export async function aiSortShelves(o: AiOptions | undefined, input: SortInput):
       .map((n) => ({ name: n.name.trim().slice(0, 60), reason: n.reason.trim().slice(0, 200), bookIds: [...new Set(n.bookIds.filter((b) => bookIds.has(b)))] }))
       .filter((n) => n.name && n.bookIds.length),
   };
+}
+
+// ---------- Chat ----------
+
+export const CHAT_ACTIONS = ["move_books", "add_to_shelf", "remove_from_shelf", "create_shelf", "rename_shelf", "delete_shelf", "open_book"] as const;
+export type ChatActionType = (typeof CHAT_ACTIONS)[number];
+
+/** A change the AI proposes. Nothing happens until you confirm it. Ids are the catalog's short ids. */
+export interface ChatAction {
+  type: ChatActionType;
+  bookIds: string[];
+  shelfId: string | null;
+  fromShelfId: string | null;
+  name: string | null;
+  summary: string;
+}
+
+export interface ChatInput {
+  /** One line per book: "b1 | Title | Author | shelves: s1, s2 | 40% read". */
+  catalog: string;
+  /** One line per shelf: "s1 | Name". */
+  shelves: string;
+  messages: ChatMessage[];
+}
+
+const CHAT_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["reply", "actions"],
+  properties: {
+    reply: { type: "string" },
+    actions: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["type", "bookIds", "shelfId", "fromShelfId", "name", "summary"],
+        properties: {
+          type: { type: "string", enum: CHAT_ACTIONS },
+          bookIds: { type: "array", items: { type: "string" } },
+          shelfId: str,
+          fromShelfId: str,
+          name: str,
+          summary: { type: "string" },
+        },
+      },
+    },
+  },
+};
+
+const CHAT_SYSTEM = `You are the librarian of a personal ebook library. Answer questions about the books in it, recommend what to read next from it, and help organise the shelves.
+Keep replies short, friendly and plain (a few sentences, no Markdown headings). Refer to books by title, never by id.
+You cannot change anything yourself. When the user asks for a change, propose it in "actions" and say in "reply" that it is ready for them to confirm. Only propose what they asked for.
+Actions (use the ids from the catalog; a new shelf is referred to by its name):
+- move_books: bookIds from fromShelfId (null if unshelved) to shelfId.
+- add_to_shelf: bookIds onto shelfId, keeping their other shelves.
+- remove_from_shelf: bookIds off fromShelfId.
+- create_shelf: a shelf called name; bookIds (optional) go on it.
+- rename_shelf: shelfId gets name.
+- delete_shelf: shelfId (its books stay in the library).
+- open_book: bookIds[0] opens in the reader.
+"summary" is one short line describing the change for a confirm button, e.g. "Move Dune to Science fiction".
+Only talk about books in the catalog; if something isn't there, say so.`;
+
+export async function aiChat(o: AiOptions | undefined, input: ChatInput): Promise<{ reply: string; actions: ChatAction[] } | null> {
+  if (!aiEnabled(o)) return null;
+  const context = `Shelves:\n${input.shelves || "(none)"}\n\nBooks:\n${input.catalog || "(the library is empty)"}`;
+  return chatJson(o, "librarian_reply", CHAT_SCHEMA, `${CHAT_SYSTEM}\n\n${context}`, input.messages, 0.3);
 }
