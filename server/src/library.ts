@@ -51,6 +51,8 @@ export interface BookDetailDto extends BookDto {
   fileName: string;
   sources: Sources;
   metaCheckedAt: string | null;
+  /** True while a background online lookup is still due. */
+  lookupPending: boolean;
   shelfIds: string[];
 }
 
@@ -104,6 +106,7 @@ export function toDetailDto(b: BookRow, shelfIds: string[]): BookDetailDto {
     fileName: b.file_name,
     sources: JSON.parse(b.meta_sources || "{}") as Sources,
     metaCheckedAt: b.meta_checked_at,
+    lookupPending: false,
     shelfIds,
   };
 }
@@ -142,7 +145,8 @@ export class Library {
     const shelfIds = (this.db.prepare("SELECT shelf_id FROM shelf_books WHERE book_id = ?").all(id) as { shelf_id: string }[]).map(
       (r) => r.shelf_id,
     );
-    return toDetailDto(this.getBook(id), shelfIds);
+    const b = this.getBook(id);
+    return { ...toDetailDto(b, shelfIds), lookupPending: !!this.opts.online && !b.meta_checked_at };
   }
 
   getBook(id: string): BookRow {

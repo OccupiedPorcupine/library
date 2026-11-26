@@ -36,6 +36,7 @@ export interface BookDetail extends Book {
   fileName: string;
   sources: Partial<Record<string, FieldSource>>;
   metaCheckedAt: string | null;
+  lookupPending: boolean;
   shelfIds: string[];
 }
 

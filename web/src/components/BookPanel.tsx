@@ -62,10 +62,10 @@ export function BookPanel({ bookId, onClose, onChanged }: Props) {
         .then((b) => {
           if (!alive) return;
           setBook((prev) => {
-            if (prev && !prev.metaCheckedAt && b.metaCheckedAt) onChanged();
+            if (prev?.lookupPending && !b.lookupPending) onChanged();
             return b;
           });
-          if (!b.metaCheckedAt && ++tries < POLL_TRIES) timer = window.setTimeout(load, POLL_MS);
+          if (b.lookupPending && ++tries < POLL_TRIES) timer = window.setTimeout(load, POLL_MS);
         })
         .catch((e: Error) => alive && setError(e.message));
     void load();
@@ -255,7 +255,7 @@ function View({
         </div>
       </div>
 
-      {!book.metaCheckedAt && (
+      {book.lookupPending && (
         <p className="panel__looking">
           <span className="dot-pulse" aria-hidden /> Looking up details online…
         </p>
