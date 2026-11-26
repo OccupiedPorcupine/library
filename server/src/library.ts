@@ -606,7 +606,8 @@ export class Library {
       let dirty = false;
       for (const f of ["title", "author", "publisher"] as const) {
         const src = sources[f];
-        if ((src === "file" || src === "filename" || src === "ai") && isJunkMeta(m[f])) {
+        // Books added before sources were tracked have none: treat them like file metadata.
+        if ((!src || src === "file" || src === "filename" || src === "ai") && isJunkMeta(m[f])) {
           if (f === "title") {
             m.title = titleFromFileName(b.file_name);
             sources.title = "filename";

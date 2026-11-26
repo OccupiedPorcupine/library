@@ -148,6 +148,11 @@ test("watermarks and URLs in file metadata are ignored, and old junk is cleaned 
     d = library.getDetail(book.id);
     assert.equal(d.author, null);
     assert.equal(d.metaCheckedAt, null, "queued for another lookup");
+
+    // A book from before sources were tracked, titled with its file name.
+    db.prepare("UPDATE books SET title = 'Computer Networking.epub', meta_sources = '{}' WHERE id = ?").run(book.id);
+    assert.equal(library.cleanJunk(), 1);
+    assert.equal(library.getDetail(book.id).title, "Computer Networking");
   } finally {
     await app.close();
   }
