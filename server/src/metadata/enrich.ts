@@ -9,9 +9,11 @@
  *   that an ISBN-matched online cover can replace.
  */
 import type { ExtractedMeta, TocEntry } from "../formats/index.js";
+import type { AiMeta } from "./ai.js";
+import { parseIsbn } from "./isbn.js";
 import type { OnlineMeta } from "./online.js";
 
-export type FieldSource = "filename" | "file" | "openlibrary" | "googlebooks" | "user";
+export type FieldSource = "filename" | "file" | "ai" | "openlibrary" | "googlebooks" | "user";
 
 export const META_FIELDS = [
   "title",
@@ -74,6 +76,40 @@ export function fromFile(meta: ExtractedMeta, fallbackTitle: string): { meta: Bo
   sources.title = meta.title ? "file" : "filename";
   if (meta.cover) sources.cover = "file";
   return { meta: m, sources };
+}
+
+/**
+ * Applies the AI's reading of the opening pages. It may correct the title, subtitle and author
+ * that came from the file or file name (often junk), and fills other empty fields. Never touches
+ * your edits or anything found online.
+ */
+export function mergeAi(meta: BookMeta, sources: Sources, ai: AiMeta): MetaField[] {
+  if (ai.confidence === "low") return [];
+  const changed: MetaField[] = [];
+  const replaceable = (f: MetaField) => sources[f] === undefined || sources[f] === "filename" || sources[f] === "file";
+  const set = <K extends MetaField>(f: K, v: BookMeta[K]) => {
+    if (JSON.stringify(meta[f]) === JSON.stringify(v)) return;
+    meta[f] = v;
+    sources[f] = "ai";
+    changed.push(f);
+  };
+  if (ai.title?.trim() && replaceable("title")) set("title", ai.title.trim());
+  if (ai.subtitle?.trim() && replaceable("subtitle")) set("subtitle", ai.subtitle.trim());
+  if (ai.authors.length && replaceable("author")) set("author", ai.authors.map((a) => a.trim()).filter(Boolean).join(", "));
+  const fill = <K extends MetaField>(f: K, v: BookMeta[K] | null) => {
+    if (!empty(v) && empty(meta[f]) && sources[f] !== "user") set(f, v as BookMeta[K]);
+  };
+  fill("series", ai.series);
+  fill("seriesIndex", ai.seriesIndex);
+  fill("publisher", ai.publisher);
+  fill("published", ai.year && /^\d{4}$/.test(ai.year) ? ai.year : null);
+  fill("language", ai.language);
+  const isbn = parseIsbn(ai.isbn);
+  if (isbn && empty(meta.isbn13) && sources.isbn13 !== "user") {
+    set("isbn13", isbn.isbn13);
+    meta.isbn10 = isbn.isbn10;
+  }
+  return changed;
 }
 
 /** Fills gaps from online results, in priority order. Returns the fields it changed. */
