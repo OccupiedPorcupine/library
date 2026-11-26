@@ -791,8 +791,9 @@ input {
   inset: 0;
   z-index: 50;
   display: grid;
-  place-items: center;
-  background: color-mix(in srgb, var(--wall) 75%, transparent);
+  place-items: end center;
+  padding-bottom: 12vh;
+  background: color-mix(in srgb, var(--wall) 35%, transparent);
   pointer-events: none;
 }
 .dropzone__card {

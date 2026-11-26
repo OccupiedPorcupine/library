@@ -99,6 +99,7 @@ export const api = {
       xhr.onload = () => {
         const body = xhr.response as (Result & { error?: string }) | null;
         if (xhr.status >= 200 && xhr.status < 300 && body) resolve(body);
+        else if (xhr.status === 413) reject(new Error(body?.error ?? "too large to upload (over the size limit)"));
         else reject(new Error(body?.error ?? `${xhr.status} ${xhr.statusText || "Upload failed"}`));
       };
       xhr.onerror = () => reject(new Error("Network error"));

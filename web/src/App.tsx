@@ -105,7 +105,7 @@ export function App() {
   }, [toast]);
 
   const upload = useCallback(
-    async (files: File[]) => {
+    async (files: File[], shelfId?: string) => {
       if (!files.length) return;
       // Each file gets a placeholder book that builds up from the bottom as its bytes arrive.
       const stamp = Date.now();
@@ -126,38 +126,46 @@ export function App() {
       requestAnimationFrame(() =>
         document.getElementById(`shelf-${UNSHELVED}`)?.scrollIntoView({ behavior: "smooth", block: "start" }),
       );
-      const ids = new Set(placeholders.map((b) => b.id));
-      const total = files.reduce((n, f) => n + f.size, 0) || 1;
-      const onProgress = (loaded: number, sent: number) => {
-        // The request carries some form overhead; scale bytes sent onto the files in order.
-        const bytes = (loaded / sent) * total;
-        let offset = 0;
-        const t = new Map<string, number>();
-        placeholders.forEach((b, i) => {
-          const size = files[i]!.size || 1;
-          t.set(b.id, Math.min(1, Math.max(0, (bytes - offset) / size)));
-          offset += files[i]!.size;
-        });
-        setPending((p) => p.map((b) => (t.has(b.id) ? { ...b, transfer: t.get(b.id) } : b)));
+      const setTransfer = (id: string, t: number) =>
+        setPending((p) => p.map((b) => (b.id === id ? { ...b, transfer: t } : b)));
+      const done = (id: string) => setPending((p) => p.filter((b) => b.id !== id));
+
+      // One request per file, two at a time: a single request for many books can pass the
+      // proxy's per-request size limit, and one bad file shouldn't sink the rest.
+      let added = 0;
+      let dup = 0;
+      const failed: string[] = [];
+      let next = 0;
+      const worker = async () => {
+        while (next < files.length) {
+          const i = next++;
+          const file = files[i]!;
+          const ph = placeholders[i]!;
+          try {
+            const { results } = await api.upload([file], {
+              shelfId,
+              onProgress: (loaded, total) => setTransfer(ph.id, Math.min(1, loaded / (total || 1))),
+            });
+            const r = results[0];
+            if (r?.error) failed.push(`${file.name}: ${r.error}`);
+            else if (r?.duplicate) dup++;
+            else added++;
+          } catch (e) {
+            failed.push(`${file.name}: ${(e as Error).message}`);
+          } finally {
+            done(ph.id);
+          }
+        }
       };
-      try {
-        const { results } = await api.upload(files, { onProgress });
-        const failed = results.filter((r) => r.error);
-        const dup = results.filter((r) => r.duplicate).length;
-        const added = results.length - failed.length - dup;
-        setToast(
-          [added && `Added ${added}`, dup && `${dup} already in library`, failed.length && `${failed.length} failed: ${failed[0]!.error}`]
-            .filter(Boolean)
-            .join(" · "),
-        );
-        await load();
-        // Covers, cleaned titles and AI shelving arrive in the background shortly after.
-        refreshSoon();
-      } catch (e) {
-        setToast(`Upload failed: ${(e as Error).message}`);
-      } finally {
-        setPending((p) => p.filter((b) => !ids.has(b.id)));
-      }
+      await Promise.all([worker(), worker()]);
+      setToast(
+        [added && `Added ${added}`, dup && `${dup} already in library`, failed.length && `${failed.length} failed (${failed[0]})`]
+          .filter(Boolean)
+          .join(" · "),
+      );
+      await load();
+      // Covers, cleaned titles and AI shelving arrive in the background shortly after.
+      if (added) refreshSoon();
     },
     [load, refreshSoon],
   );
@@ -174,7 +182,10 @@ export function App() {
       e.preventDefault();
       depth = 0;
       setDragging(false);
-      void upload([...(e.dataTransfer?.files ?? [])]);
+      // Dropped on a shelf (or its tab)? Put the books there.
+      const el = e.target instanceof Element ? e.target : null;
+      const target = el?.closest<HTMLElement>("[data-shelf]")?.dataset.shelf ?? el?.closest<HTMLElement>(".tabs [data-id]")?.dataset.id;
+      void upload([...(e.dataTransfer?.files ?? [])], target && target !== UNSHELVED ? target : undefined);
     };
     window.addEventListener("dragenter", enter);
     window.addEventListener("dragleave", leave);
@@ -273,7 +284,7 @@ export function App() {
 
       {dragging && (
         <div className="dropzone" aria-hidden>
-          <div className="dropzone__card">Drop to add to your library</div>
+          <div className="dropzone__card">Drop to add to your library, or onto a shelf to put it there</div>
         </div>
       )}
       <div className={`toast${toast ? " is-visible" : ""}`} role="status">
