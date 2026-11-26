@@ -46,6 +46,8 @@
   --ledge-lip: linear-gradient(to bottom, #ece9e3, #dedad2);
   --contact: rgba(25, 28, 35, 0.22);
   --reflect: rgba(25, 28, 35, 0.1);
+  --floor-lit: rgba(255, 255, 255, 0.75);
+  --floor-front: rgba(25, 28, 35, 0.08);
 
   /* Shape & type */
   --radius-s: 6px;
@@ -93,6 +95,8 @@
     --ledge-lip: linear-gradient(to bottom, #1c1e23, #15171a);
     --contact: rgba(0, 0, 0, 0.6);
     --reflect: rgba(255, 236, 205, 0.09);
+    --floor-lit: rgba(255, 236, 205, 0.055);
+    --floor-front: rgba(0, 0, 0, 0.24);
   }
 }
 
@@ -127,6 +131,8 @@
   --ledge-lip: linear-gradient(to bottom, #1c1e23, #15171a);
   --contact: rgba(0, 0, 0, 0.6);
   --reflect: rgba(255, 236, 205, 0.09);
+  --floor-lit: rgba(255, 236, 205, 0.055);
+  --floor-front: rgba(0, 0, 0, 0.24);
 }
 
 @media (prefers-reduced-motion: reduce) {
