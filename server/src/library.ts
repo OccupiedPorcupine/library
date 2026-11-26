@@ -1,10 +1,11 @@
 import crypto from "node:crypto";
 import path from "node:path";
 import type { Readable } from "node:stream";
-import type { BookRow, Db, ShelfRow } from "./db.js";
+import type { BookRow, Db, ShelfRow, ShelfSuggestionRow } from "./db.js";
 import { CONTENT_TYPES, detectFormat, extractMeta, isSupported, titleFromFileName, type TocEntry } from "./formats/index.js";
 import { imageSize, sniffImage } from "./formats/images.js";
-import { type BookMeta, fromFile, META_FIELDS, mergeOnline, type MetaField, type Sources, wantsOnlineCover } from "./metadata/enrich.js";
+import { type AiOptions, aiEnabled, aiMetadata, aiSortShelves } from "./metadata/ai.js";
+import { type BookMeta, fromFile, META_FIELDS, mergeAi, mergeOnline, type MetaField, type Sources, wantsOnlineCover } from "./metadata/enrich.js";
 import { parseIsbn } from "./metadata/isbn.js";
 import { googleBooks, type LookupQuery, openLibrary, type OnlineMeta, type OnlineOptions } from "./metadata/online.js";
 import type { Storage } from "./storage/index.js";
@@ -57,6 +58,13 @@ export interface BookDetailDto extends BookDto {
 }
 
 export type MetadataPatch = Partial<Omit<BookMeta, "isbn10">>;
+
+export interface ShelfSuggestionDto {
+  id: string;
+  name: string;
+  reason: string | null;
+  bookIds: string[];
+}
 
 export interface ShelfDto {
   id: string;
@@ -124,6 +132,10 @@ export interface LibraryOptions {
   online?: boolean;
   onlineOptions?: OnlineOptions;
   log?: (msg: string, err?: unknown) => void;
+  /** OpenAI settings; the AI steps are skipped without an API key. */
+  ai?: AiOptions;
+  /** Put books on existing shelves automatically after the AI pass. */
+  aiAutoShelve?: boolean;
 }
 
 /** Pause between books in the background queue, to be polite to the free APIs. */
@@ -146,7 +158,8 @@ export class Library {
       (r) => r.shelf_id,
     );
     const b = this.getBook(id);
-    return { ...toDetailDto(b, shelfIds), lookupPending: !!this.opts.online && !b.meta_checked_at };
+    const pending = (!!this.opts.online && !b.meta_checked_at) || (aiEnabled(this.opts.ai) && !b.ai_checked_at);
+    return { ...toDetailDto(b, shelfIds), lookupPending: pending };
   }
 
   getBook(id: string): BookRow {
@@ -156,7 +169,7 @@ export class Library {
   }
 
   /** Everything the home page needs in one call. */
-  overview(): { shelves: ShelfDto[]; unshelved: BookDto[] } {
+  overview(): { shelves: ShelfDto[]; unshelved: BookDto[]; suggestions: ShelfSuggestionDto[]; ai: boolean } {
     const shelves = this.db.prepare("SELECT * FROM shelves ORDER BY position, name").all() as ShelfRow[];
     const inShelf = this.db.prepare(
       `SELECT b.* FROM books b JOIN shelf_books sb ON sb.book_id = b.id
@@ -171,6 +184,8 @@ export class Library {
     return {
       shelves: shelves.map((s) => ({ ...s, books: (inShelf.all(s.id) as BookRow[]).map(toDto) })),
       unshelved: unshelved.map(toDto),
+      suggestions: this.suggestions(),
+      ai: aiEnabled(this.opts.ai),
     };
   }
 
@@ -205,6 +220,7 @@ export class Library {
       )
       .run(id, m.title, m.author, format, fileKey, path.basename(fileName), data.length, hash, coverKey, spine);
     this.saveMeta(id, m, sources);
+    this.db.prepare("UPDATE books SET text_sample = ? WHERE id = ?").run(meta.sampleText ?? null, id);
     if (shelfId) this.addToShelf(shelfId, id);
     this.enqueue(id);
     return toDto(this.getBook(id));
@@ -395,9 +411,9 @@ export class Library {
     return null;
   }
 
-  /** Queues a book for a background online lookup. */
+  /** Queues a book for the background pass: AI clean-up, online lookup, then shelf sorting. */
   enqueue(id: string): void {
-    if (!this.opts.online || this.closed || this.queued.has(id)) return;
+    if ((!this.opts.online && !aiEnabled(this.opts.ai)) || this.closed || this.queued.has(id)) return;
     this.queued.add(id);
     this.queue.push(id);
     this.draining ??= this.drain().finally(() => (this.draining = null));
@@ -409,7 +425,9 @@ export class Library {
       this.queued.delete(id);
       try {
         await this.reextractIfNeeded(id);
-        await this.refreshMetadata(id);
+        await this.aiPass(id).catch((e) => this.opts.log?.(`AI metadata for ${id}`, e));
+        if (this.opts.online && !this.getBook(id).meta_checked_at) await this.refreshMetadata(id);
+        await this.autoShelve(id).catch((e) => this.opts.log?.(`AI shelving for ${id}`, e));
       } catch (e) {
         if (!(e instanceof HttpError && e.statusCode === 404)) this.opts.log?.(`metadata for ${id}`, e);
       }
@@ -420,18 +438,142 @@ export class Library {
   /** Books indexed before rich metadata existed only have a title and author: read their file again. */
   private async reextractIfNeeded(id: string): Promise<void> {
     const b = this.getBook(id);
-    if (b.meta_sources !== "{}") return;
+    const needSample = aiEnabled(this.opts.ai) && !b.ai_checked_at && b.text_sample === null;
+    if (b.meta_sources !== "{}" && !needSample) return;
     const data = await readAll((await this.storage.get(b.file_key)).stream);
     const meta = await extractMeta(b.format, data);
+    // An empty string marks "looked, found no text", so the file isn't read again.
+    this.db.prepare("UPDATE books SET text_sample = ? WHERE id = ?").run(meta.sampleText ?? "", id);
+    if (b.meta_sources !== "{}") return;
     const { meta: m, sources } = fromFile(meta, b.title);
     if (meta.cover && !b.cover_key) await this.putCover(id, meta.cover.data, meta.cover);
     if (!meta.cover && b.cover_key) sources.cover = "file";
     this.saveMeta(id, m, sources);
   }
 
-  /** On startup: look up every book that hasn't been checked online yet. */
+  // ---------- AI ----------
+
+  /** Has the AI read the opening pages and clean up the title, author and other fields. */
+  async aiPass(id: string, force = false): Promise<boolean> {
+    const ai = this.opts.ai;
+    if (!aiEnabled(ai)) return false;
+    const b = this.getBook(id);
+    if (b.ai_checked_at && !force) return false;
+    const m = rowMeta(b);
+    const sources = JSON.parse(b.meta_sources || "{}") as Sources;
+    const embedded = Object.fromEntries(
+      (["title", "subtitle", "author", "series", "publisher", "published", "language", "isbn13"] as const)
+        .filter((f) => m[f] != null && sources[f] !== "filename")
+        .map((f) => [f, m[f]]),
+    );
+    const result = await aiMetadata(ai, { fileName: b.file_name, format: b.format, embedded, sampleText: b.text_sample });
+    if (result) {
+      mergeAi(m, sources, result);
+      this.saveMeta(id, m, sources);
+    }
+    this.db.prepare("UPDATE books SET ai_checked_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?").run(id);
+    return true;
+  }
+
+  /** After upload: a book that landed on no shelf gets placed (or a new shelf suggested). */
+  private async autoShelve(id: string): Promise<void> {
+    if (!aiEnabled(this.opts.ai) || !this.opts.aiAutoShelve) return;
+    const onShelf = this.db.prepare("SELECT 1 FROM shelf_books WHERE book_id = ?").get(id);
+    if (onShelf) return;
+    await this.sortBooks([id]);
+  }
+
+  /**
+   * Asks the AI where books belong. Unshelved books are placed on matching existing shelves;
+   * themes no shelf covers come back as suggestions for you to accept or dismiss.
+   */
+  async sortBooks(ids?: string[]): Promise<{ placed: number; suggestions: ShelfSuggestionDto[] }> {
+    if (!aiEnabled(this.opts.ai)) throw new HttpError(400, "AI isn't set up: add OPENAI_API_KEY to the server's .env");
+    const targets = ids
+      ? ids
+      : (this.db.prepare("SELECT id FROM books WHERE id NOT IN (SELECT book_id FROM shelf_books) ORDER BY added_at").all() as { id: string }[]).map(
+          (r) => r.id,
+        );
+    const shelves = this.db.prepare("SELECT * FROM shelves ORDER BY position").all() as ShelfRow[];
+    const examples = this.db.prepare(
+      `SELECT b.title FROM books b JOIN shelf_books sb ON sb.book_id = b.id WHERE sb.shelf_id = ? ORDER BY sb.position LIMIT 8`,
+    );
+    const avoid = (this.db.prepare("SELECT name FROM shelf_suggestions").all() as { name: string }[]).map((r) => r.name);
+    let placed = 0;
+    // Batches keep each request small.
+    for (let i = 0; i < targets.length; i += 30) {
+      const books = targets.slice(i, i + 30).map((id) => {
+        const b = this.getBook(id);
+        return { id, title: b.title, author: b.author, subjects: JSON.parse(b.subjects || "[]") as string[], description: b.description };
+      });
+      const res = await aiSortShelves(this.opts.ai, {
+        shelves: shelves.map((s) => ({ id: s.id, name: s.name, examples: (examples.all(s.id) as { title: string }[]).map((r) => r.title) })),
+        books,
+        avoidNames: avoid,
+      });
+      if (!res) break;
+      this.db.transaction(() => {
+        for (const a of res.assignments) {
+          const unshelved = !this.db.prepare("SELECT 1 FROM shelf_books WHERE book_id = ?").get(a.bookId);
+          if (!unshelved || !a.shelfIds.length) continue;
+          for (const s of a.shelfIds) this.addToShelf(s, a.bookId);
+          placed++;
+        }
+        for (const n of res.newShelves) this.addSuggestion(n.name, n.reason, n.bookIds);
+      })();
+      avoid.push(...res.newShelves.map((n) => n.name));
+    }
+    return { placed, suggestions: this.suggestions() };
+  }
+
+  private addSuggestion(name: string, reason: string, bookIds: string[]): void {
+    const key = name.trim().toLowerCase();
+    if ((this.db.prepare("SELECT 1 FROM shelves WHERE lower(name) = ?").get(key))) return;
+    const existing = this.db.prepare("SELECT * FROM shelf_suggestions WHERE lower(name) = ?").get(key) as ShelfSuggestionRow | undefined;
+    if (existing) {
+      if (existing.status !== "open") return; // dismissed or already accepted: don't bring it back
+      const merged = [...new Set([...(JSON.parse(existing.book_ids) as string[]), ...bookIds])];
+      this.db.prepare("UPDATE shelf_suggestions SET book_ids = ? WHERE id = ?").run(JSON.stringify(merged), existing.id);
+      return;
+    }
+    this.db
+      .prepare("INSERT INTO shelf_suggestions (id, name, book_ids, reason) VALUES (?, ?, ?, ?)")
+      .run(crypto.randomUUID(), name.trim(), JSON.stringify(bookIds), reason || null);
+  }
+
+  suggestions(): ShelfSuggestionDto[] {
+    const rows = this.db.prepare("SELECT * FROM shelf_suggestions WHERE status = 'open' ORDER BY created_at").all() as ShelfSuggestionRow[];
+    const exists = this.db.prepare("SELECT 1 FROM books WHERE id = ?");
+    return rows
+      .map((r) => ({ id: r.id, name: r.name, reason: r.reason, bookIds: (JSON.parse(r.book_ids) as string[]).filter((b) => exists.get(b)) }))
+      .filter((r) => r.bookIds.length > 0);
+  }
+
+  /** Creates the suggested shelf (optionally renamed) and puts its books on it. */
+  acceptSuggestion(id: string, name?: string): ShelfRow {
+    const row = this.db.prepare("SELECT * FROM shelf_suggestions WHERE id = ? AND status = 'open'").get(id) as ShelfSuggestionRow | undefined;
+    if (!row) throw new HttpError(404, "Suggestion not found");
+    return this.db.transaction(() => {
+      const shelf = this.createShelf(name?.trim() || row.name);
+      for (const b of JSON.parse(row.book_ids) as string[]) if (this.db.prepare("SELECT 1 FROM books WHERE id = ?").get(b)) this.addToShelf(shelf.id, b);
+      this.db.prepare("UPDATE shelf_suggestions SET status = 'accepted' WHERE id = ?").run(id);
+      return shelf;
+    })();
+  }
+
+  dismissSuggestion(id: string): void {
+    const res = this.db.prepare("UPDATE shelf_suggestions SET status = 'dismissed' WHERE id = ? AND status = 'open'").run(id);
+    if (res.changes === 0) throw new HttpError(404, "Suggestion not found");
+  }
+
+  /** On startup: pick up every book that still needs an online lookup or AI pass. */
   resumeQueue(): void {
-    const ids = this.db.prepare("SELECT id FROM books WHERE meta_checked_at IS NULL ORDER BY added_at").all() as { id: string }[];
+    const ai = aiEnabled(this.opts.ai);
+    const ids = this.db
+      .prepare(
+        `SELECT id FROM books WHERE (? AND meta_checked_at IS NULL) OR (? AND ai_checked_at IS NULL) ORDER BY added_at`,
+      )
+      .all(this.opts.online ? 1 : 0, ai ? 1 : 0) as { id: string }[];
     for (const { id } of ids) this.enqueue(id);
   }
 
