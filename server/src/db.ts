@@ -19,6 +19,24 @@ export interface BookRow {
   finished_at: string | null;
   added_at: string;
   updated_at: string;
+  subtitle: string | null;
+  series: string | null;
+  series_index: number | null;
+  description: string | null;
+  publisher: string | null;
+  published: string | null;
+  page_count: number | null;
+  language: string | null;
+  isbn10: string | null;
+  isbn13: string | null;
+  /** JSON string[] */
+  subjects: string;
+  /** JSON TocEntry[] */
+  toc: string;
+  /** JSON Record<field, "file" | "openlibrary" | "googlebooks" | "user"> */
+  meta_sources: string;
+  /** When online sources were last asked; null means never. */
+  meta_checked_at: string | null;
 }
 
 export interface ShelfRow {
@@ -61,6 +79,24 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX shelf_books_book ON shelf_books(book_id);
   CREATE INDEX books_title ON books(title COLLATE NOCASE);
+  `,
+  // Rich metadata: from the file first, then Open Library / Google Books, then manual edits.
+  `
+  ALTER TABLE books ADD COLUMN subtitle TEXT;
+  ALTER TABLE books ADD COLUMN series TEXT;
+  ALTER TABLE books ADD COLUMN series_index REAL;
+  ALTER TABLE books ADD COLUMN description TEXT;
+  ALTER TABLE books ADD COLUMN publisher TEXT;
+  ALTER TABLE books ADD COLUMN published TEXT;
+  ALTER TABLE books ADD COLUMN page_count INTEGER;
+  ALTER TABLE books ADD COLUMN language TEXT;
+  ALTER TABLE books ADD COLUMN isbn10 TEXT;
+  ALTER TABLE books ADD COLUMN isbn13 TEXT;
+  ALTER TABLE books ADD COLUMN subjects TEXT NOT NULL DEFAULT '[]';
+  ALTER TABLE books ADD COLUMN toc TEXT NOT NULL DEFAULT '[]';
+  ALTER TABLE books ADD COLUMN meta_sources TEXT NOT NULL DEFAULT '{}';
+  ALTER TABLE books ADD COLUMN meta_checked_at TEXT;
+  CREATE INDEX books_isbn13 ON books(isbn13);
   `,
 ];
 
