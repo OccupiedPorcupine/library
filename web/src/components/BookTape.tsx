@@ -19,6 +19,7 @@ interface Props {
  * A book drawn as a 3D box: spine at the front, cover on its right-hand side,
  * page block on top. The shelf turns the whole box with an inline transform,
  * so turning a book to face you is one composited transform, never a re-render.
+ * While its file is still uploading (or downloading), the book builds up from the bottom.
  */
 export const BookTape = memo(function BookTape({ book, index, geo }: Props) {
   const light = isLight(book.spineColor);
@@ -28,15 +29,18 @@ export const BookTape = memo(function BookTape({ book, index, geo }: Props) {
     "--ws": `${geo.ws}px`,
     "--hh": geo.hh,
     "--p": book.finishedAt ? 1 : book.progress,
+    ...(book.transfer !== undefined && { "--up": book.transfer }),
   } as CSSProperties;
+  const moving = book.transfer !== undefined;
 
   return (
-    <div className={`tape${book.finishedAt ? " is-finished" : ""}`} style={style} data-i={index} aria-hidden>
+    <div className={`tape${book.finishedAt ? " is-finished" : ""}${moving ? " is-moving" : ""}`} style={style} data-i={index} aria-hidden>
       <div className="tape__face tape__spine">
         <i className="tape__band">{book.format.toUpperCase()}</i>
         <span className="tape__title">{book.title}</span>
         {book.author && <span className="tape__author">{shortAuthor(book.author)}</span>}
         <span className="tape__light" />
+        {moving && <span className="tape__front" />}
       </div>
       <div className="tape__face tape__back" />
       <div className="tape__face tape__top" />
@@ -52,6 +56,7 @@ export const BookTape = memo(function BookTape({ book, index, geo }: Props) {
         )}
         <span className="tape__shade" />
         <span className="tape__light" />
+        {moving && <span className="tape__front" />}
       </div>
     </div>
   );
