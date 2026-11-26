@@ -1,8 +1,13 @@
-/* Registered so reading-progress light can animate smoothly. */
+/* Registered so reading-progress light and upload build-up can animate smoothly. */
 @property --p {
   syntax: "<number>";
   inherits: true;
   initial-value: 0;
+}
+@property --up {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 1;
 }
 
 *,
@@ -612,6 +617,40 @@ input {
 .tape.is-finished .tape__light,
 :root[data-dim="off"] .tape__light {
   opacity: 0;
+}
+
+/*
+ * A book whose file is still on its way: nothing at first, then it builds up from the
+ * bottom as the bytes arrive, with a warm line where it is growing. The page block
+ * appears last, once the book is whole.
+ */
+.tape.is-moving {
+  transition: --up 350ms linear;
+}
+.tape.is-moving .tape__spine,
+.tape.is-moving .tape__cover,
+.tape.is-moving .tape__back {
+  clip-path: inset(calc((1 - var(--up)) * 100%) -2px -2px -2px);
+}
+.tape.is-moving .tape__top,
+.tape.is-moving .tape__light {
+  opacity: 0;
+}
+.tape__front {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--up) * 100% - 3px);
+  height: 3px;
+  pointer-events: none;
+  background: var(--glow);
+  box-shadow: 0 0 10px 2px color-mix(in srgb, var(--glow) 70%, transparent);
+  opacity: calc(1 - var(--up) * var(--up) * var(--up));
+}
+.btn.is-disabled {
+  opacity: 0.4;
+  cursor: default;
+  pointer-events: none;
 }
 
 /* ---------- Caption under each shelf ---------- */
