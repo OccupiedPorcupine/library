@@ -1733,3 +1733,105 @@ button.toc__row:focus-visible .toc__go {
   box-shadow: var(--shadow-3), var(--highlight-top);
   animation: pop var(--med) var(--ease);
 }
+
+/* ---------- AI shelf suggestions (#34) ---------- */
+
+.hero__sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 12px;
+  padding: 4px 12px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--hairline-strong);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-1), var(--highlight-top);
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--ink);
+  cursor: pointer;
+}
+.hero__sort svg,
+.suggest__label svg {
+  color: var(--glow);
+}
+.hero__sort:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+.suggest {
+  max-width: 1120px;
+  margin: 0 auto 26px;
+  padding: 0 16px;
+}
+.suggest__label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 0 0 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.suggest__list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 340px));
+  justify-content: center;
+  gap: 14px;
+}
+.suggest__card {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border-radius: var(--radius-l);
+  border: 1px solid var(--hairline);
+  background: var(--skylight), var(--surface-raised);
+  box-shadow: var(--shadow-2), var(--highlight-top);
+  animation: rise 350ms cubic-bezier(0.22, 0.8, 0.2, 1);
+}
+.suggest__name {
+  width: 100%;
+  margin: -4px -6px 0;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-s);
+  background: none;
+  font-family: var(--font-serif);
+  font-size: 20px;
+  color: var(--ink);
+}
+.suggest__name:hover,
+.suggest__name:focus {
+  border-color: var(--hairline-strong);
+  background: var(--surface);
+  outline: none;
+}
+.suggest__reason,
+.suggest__books {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+.suggest__books {
+  color: var(--ink-faint);
+}
+.suggest__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+.suggest__actions .btn {
+  height: 34px;
+  padding: 0 14px;
+}
+@media (max-width: 480px) {
+  .hero__sort {
+    display: flex;
+    margin: 10px auto 0;
+  }
+}
