@@ -8,8 +8,8 @@ A personal library web app: a home for my books with themed shelves, custom anim
 
 - Upload EPUB, PDF, CBZ, MOBI/AZW3, FB2, TXT and Markdown (button or drag and drop). Duplicates are detected.
 - Title, author and cover pulled from EPUB, CBZ (ComicInfo.xml) and simple PDFs. Books without a cover get a generated one.
-- Themed shelves stacked vertically, with a gallery-style index down the side.
-- Reading progress lights each book from the bottom up; finished books are at full brightness.
+- Themed shelves stacked vertically. Books stand as 3D boxes; the one in focus swings round to show its cover. Drag, swipe, scroll sideways, click a spine or use the arrow keys to browse. A sticky pill of shelf names jumps between shelves.
+- Reading progress lights each book from the bottom up; finished books are at full brightness. This dimming can be turned off in display settings (saved per device).
 - Porcelain design in light and dark mode.
 - Storage on a folder (local disk or NAS mount) or any S3-compatible server.
 - Import books already in the storage folder: `POST /api/library/scan`.
