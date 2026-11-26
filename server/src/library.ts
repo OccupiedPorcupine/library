@@ -5,7 +5,7 @@ import type { BookRow, Db, ShelfRow, ShelfSuggestionRow } from "./db.js";
 import { CONTENT_TYPES, detectFormat, extractMeta, isSupported, titleFromFileName, type TocEntry } from "./formats/index.js";
 import { imageSize, sniffImage } from "./formats/images.js";
 import { repackEpubZip } from "./formats/repack.js";
-import { type AiOptions, aiEnabled, aiMetadata, aiSortShelves } from "./metadata/ai.js";
+import { type AiOptions, aiChat, aiEnabled, aiMetadata, aiSortShelves, CHAT_ACTIONS, type ChatAction } from "./metadata/ai.js";
 import { type BookMeta, fromFile, isJunkMeta, META_FIELDS, mergeAi, mergeOnline, type MetaField, type Sources, wantsOnlineCover } from "./metadata/enrich.js";
 import { spineColorFromCover } from "./metadata/color.js";
 import { parseIsbn } from "./metadata/isbn.js";
@@ -571,6 +571,107 @@ export class Library {
     this.db
       .prepare("INSERT INTO shelf_suggestions (id, name, book_ids, reason) VALUES (?, ?, ?, ?)")
       .run(crypto.randomUUID(), name.trim(), JSON.stringify(bookIds), reason || null);
+  }
+
+  // ---------- Chat ----------
+
+  /**
+   * Asks the AI librarian about the library. It answers and may propose changes (moves, new
+   * shelves…), returned with real ids for you to confirm one by one; nothing changes here.
+   */
+  async chat(messages: { role: "user" | "assistant"; content: string }[]): Promise<{ reply: string; actions: ChatAction[] }> {
+    if (!aiEnabled(this.opts.ai)) throw new HttpError(400, "Add an OpenAI API key to the server to chat with the librarian");
+    const shelves = this.db.prepare("SELECT * FROM shelves ORDER BY position").all() as ShelfRow[];
+    const books = this.db.prepare("SELECT * FROM books ORDER BY title COLLATE NOCASE").all() as BookRow[];
+    const onShelves = new Map<string, string[]>();
+    for (const r of this.db.prepare("SELECT shelf_id, book_id FROM shelf_books").all() as { shelf_id: string; book_id: string }[]) {
+      onShelves.set(r.book_id, [...(onShelves.get(r.book_id) ?? []), r.shelf_id]);
+    }
+    // Short ids keep the prompt small; they're mapped back below.
+    const shelfShort = new Map(shelves.map((sh, i) => [sh.id, `s${i + 1}`]));
+    const shelfLong = new Map(shelves.map((sh, i) => [`s${i + 1}`, sh.id]));
+    const bookLong = new Map(books.map((b, i) => [`b${i + 1}`, b.id]));
+    const catalog = books
+      .map((b, i) => {
+        const m = rowMeta(b);
+        const read = b.finished_at ? "finished" : b.progress > 0 ? `${Math.round(b.progress * 100)}% read` : "unread";
+        return [
+          `b${i + 1}`,
+          m.title + (m.subtitle ? `: ${m.subtitle}` : ""),
+          m.author ?? "unknown author",
+          m.series ? `series: ${m.series}${m.seriesIndex ? ` #${m.seriesIndex}` : ""}` : "",
+          m.published ? m.published.slice(0, 4) : "",
+          m.subjects.length ? `subjects: ${m.subjects.slice(0, 4).join(", ")}` : "",
+          `shelves: ${(onShelves.get(b.id) ?? []).map((x) => shelfShort.get(x)).join(", ") || "none"}`,
+          read,
+        ]
+          .filter(Boolean)
+          .join(" | ");
+      })
+      .join("\n");
+    const res = await aiChat(this.opts.ai, {
+      catalog,
+      shelves: shelves.map((sh) => `${shelfShort.get(sh.id)} | ${sh.name}`).join("\n"),
+      messages: messages.slice(-12).map((m) => ({ role: m.role, content: m.content.slice(0, 2000) })),
+    });
+    if (!res) throw new HttpError(503, "The librarian isn't available");
+    const actions: ChatAction[] = [];
+    for (const a of res.actions) {
+      const bookIds = a.bookIds.map((x) => bookLong.get(x)).filter((x): x is string => !!x);
+      const shelfId = a.shelfId ? (shelfLong.get(a.shelfId) ?? null) : null;
+      const fromShelfId = a.fromShelfId ? (shelfLong.get(a.fromShelfId) ?? null) : null;
+      const action = { ...a, bookIds, shelfId, fromShelfId };
+      try {
+        this.checkAction(action);
+        actions.push(action);
+      } catch {
+        // Drop anything that doesn't fit the library (unknown ids, missing names).
+      }
+    }
+    return { reply: res.reply, actions };
+  }
+
+  private checkAction(a: ChatAction): void {
+    const bad = (msg: string) => new HttpError(400, msg);
+    if (!CHAT_ACTIONS.includes(a.type)) throw bad("Unknown action");
+    const shelf = (id: string | null) => !!id && !!this.db.prepare("SELECT 1 FROM shelves WHERE id = ?").get(id);
+    for (const id of a.bookIds) this.getBook(id);
+    const needBooks = ["move_books", "add_to_shelf", "remove_from_shelf", "open_book"].includes(a.type);
+    if (needBooks && a.bookIds.length === 0) throw bad("No books given");
+    if ((a.type === "move_books" || a.type === "add_to_shelf") && !shelf(a.shelfId)) throw bad("Shelf not found");
+    if (a.type === "move_books" && a.fromShelfId && !shelf(a.fromShelfId)) throw bad("Shelf not found");
+    if (a.type === "remove_from_shelf" && !shelf(a.fromShelfId)) throw bad("Shelf not found");
+    if ((a.type === "rename_shelf" || a.type === "delete_shelf") && !shelf(a.shelfId)) throw bad("Shelf not found");
+    if ((a.type === "create_shelf" || a.type === "rename_shelf") && !a.name?.trim()) throw bad("A shelf needs a name");
+  }
+
+  /** Carries out one change the librarian proposed, once you've confirmed it. */
+  applyChatAction(a: ChatAction): { ok: true; openBookId?: string; shelfId?: string } {
+    this.checkAction(a);
+    switch (a.type) {
+      case "move_books":
+        this.moveBooks(a.bookIds, a.shelfId, a.fromShelfId);
+        return { ok: true, shelfId: a.shelfId! };
+      case "add_to_shelf":
+        this.moveBooks(a.bookIds, a.shelfId, null);
+        return { ok: true, shelfId: a.shelfId! };
+      case "remove_from_shelf":
+        this.moveBooks(a.bookIds, null, a.fromShelfId);
+        return { ok: true };
+      case "create_shelf": {
+        const sh = this.createShelf(a.name!);
+        if (a.bookIds.length) this.moveBooks(a.bookIds, sh.id, null);
+        return { ok: true, shelfId: sh.id };
+      }
+      case "rename_shelf":
+        this.updateShelf(a.shelfId!, { name: a.name! });
+        return { ok: true, shelfId: a.shelfId! };
+      case "delete_shelf":
+        this.deleteShelf(a.shelfId!);
+        return { ok: true };
+      case "open_book":
+        return { ok: true, openBookId: a.bookIds[0] };
+    }
   }
 
   suggestions(): ShelfSuggestionDto[] {
