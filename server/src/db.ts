@@ -37,6 +37,19 @@ export interface BookRow {
   meta_sources: string;
   /** When online sources were last asked; null means never. */
   meta_checked_at: string | null;
+  /** Opening text of the book, for the AI pass. */
+  text_sample: string | null;
+  /** When the AI pass ran; null means never. */
+  ai_checked_at: string | null;
+}
+
+export interface ShelfSuggestionRow {
+  id: string;
+  name: string;
+  /** JSON string[] */
+  book_ids: string;
+  reason: string | null;
+  created_at: string;
 }
 
 export interface ShelfRow {
@@ -97,6 +110,18 @@ const MIGRATIONS: string[] = [
   ALTER TABLE books ADD COLUMN meta_sources TEXT NOT NULL DEFAULT '{}';
   ALTER TABLE books ADD COLUMN meta_checked_at TEXT;
   CREATE INDEX books_isbn13 ON books(isbn13);
+  `,
+  // AI pass (#29) and AI shelf suggestions (#34).
+  `
+  ALTER TABLE books ADD COLUMN text_sample TEXT;
+  ALTER TABLE books ADD COLUMN ai_checked_at TEXT;
+  CREATE TABLE shelf_suggestions (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    book_ids   TEXT NOT NULL DEFAULT '[]',
+    reason     TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+  );
   `,
 ];
 
