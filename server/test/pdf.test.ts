@@ -19,3 +19,11 @@ test("PDF: info, page count, bookmarks, ISBN from text and a rendered cover", as
   assert.equal(m.cover?.contentType, "image/jpeg");
   assert.ok(m.cover!.data.length > 1000);
 });
+
+test("PDF: extraction leaves the caller's buffer intact", async () => {
+  // Large enough not to come from Node's shared buffer pool.
+  const data = Buffer.concat([fs.readFileSync(new URL("./fixtures/sample.pdf", import.meta.url)), Buffer.alloc(64 * 1024)]);
+  const before = data.length;
+  await extractPdf(data).catch(() => undefined);
+  assert.equal(data.length, before);
+});

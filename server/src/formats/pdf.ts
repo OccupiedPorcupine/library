@@ -26,7 +26,8 @@ const junkTitle = (t: string) => /^(untitled|microsoft word|document\d*$)|\.(doc
 export async function extractPdf(data: Buffer): Promise<ExtractedMeta> {
   const { getDocument } = await loadPdfJs();
   const doc = await getDocument({
-    data: new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
+    // A copy: pdf.js transfers (detaches) the buffer it is given, which would empty the caller's Buffer.
+    data: new Uint8Array(data),
     disableFontFace: true,
     useSystemFonts: false,
     verbosity: 0,
