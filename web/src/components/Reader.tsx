@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import type { FoliateView } from "foliate-js/view.js";
 import { api, type BookDetail, type TocEntry } from "../lib/api";
+import { type PinchHandlers, watchPinch } from "../lib/pinch";
 
 /** Formats the in-app reader can open. Anything else opens as a raw file. */
 export const READABLE = new Set(["epub", "mobi", "azw3", "fb2", "cbz", "pdf"]);
@@ -37,6 +38,17 @@ const store = {
   },
 };
 
+/** Text size for reflowable books (kept across books), or page zoom for PDFs (per visit). */
+const TEXT_KEY = "reader:text-size";
+const zoomLimits = (format: string) => (format === "pdf" ? { min: 1, max: 4, step: 0.25 } : { min: 0.7, max: 2, step: 0.1 });
+const savedTextSize = () => {
+  try {
+    return Number(localStorage.getItem(TEXT_KEY)) || 1;
+  } catch {
+    return 1;
+  }
+};
+
 const isDark = () =>
   document.documentElement.dataset.theme === "dark" ||
   (document.documentElement.dataset.theme !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
@@ -53,6 +65,55 @@ export function Reader({ bookId, at, onClose, onProgress }: Props) {
   const [where, setWhere] = useState<{ fraction: number; label?: string }>({ fraction: 0 });
   const goRef = useRef<(target: string) => void>(() => {});
   const saveTimer = useRef(0);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // Zoom: pinch (touch or trackpad) or the A-/A+ buttons. Reflowable books change text size;
+  // PDFs zoom the page. While pinching, `preview` shows where it will land.
+  const format = book?.format ?? "";
+  const lim = zoomLimits(format);
+  const [zoom, setZoomState] = useState(1);
+  const [preview, setPreview] = useState<number | null>(null);
+  const [zoomNote, setZoomNote] = useState(false);
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
+  useEffect(() => {
+    if (book) setZoomState(book.format === "pdf" ? 1 : savedTextSize());
+  }, [book]);
+  const clampZoom = useCallback((z: number) => Math.min(lim.max, Math.max(lim.min, Math.round(z / 0.05) * 0.05)), [lim.max, lim.min]);
+  const setZoom = useCallback(
+    (z: number) => {
+      const next = clampZoom(z);
+      setZoomState(next);
+      setPreview(null);
+      setZoomNote(true);
+      if (format && format !== "pdf") {
+        try {
+          localStorage.setItem(TEXT_KEY, String(next));
+        } catch {
+          /* private mode */
+        }
+      }
+    },
+    [clampZoom, format],
+  );
+  useEffect(() => {
+    if (!zoomNote) return;
+    const t = setTimeout(() => setZoomNote(false), 1200);
+    return () => clearTimeout(t);
+  }, [zoomNote, zoom]);
+  const pinch = useCallback<() => PinchHandlers>(
+    () => ({
+      onChange: (s) => setPreview(s === 1 ? null : clampZoom(zoomRef.current * s)),
+      onEnd: (s) => setZoom(zoomRef.current * s),
+    }),
+    [clampZoom, setZoom],
+  );
+  // The whole reader (outside the book's own frames) zooms its content, never the page.
+  useEffect(() => {
+    const el = rootRef.current;
+    if (!el) return;
+    return watchPinch(el, pinch());
+  }, [pinch]);
 
   useEffect(() => {
     api
@@ -95,7 +156,7 @@ export function Reader({ bookId, at, onClose, onProgress }: Props) {
   const pct = Math.round(where.fraction * 100);
 
   return (
-    <div className="reader" role="dialog" aria-modal="true" aria-label={book ? `Reading ${book.title}` : "Reader"}>
+    <div className="reader" ref={rootRef} role="dialog" aria-modal="true" aria-label={book ? `Reading ${book.title}` : "Reader"}>
       <header className="reader__bar">
         <button type="button" className="icon-btn" onClick={onClose} aria-label="Back to book details">
           <svg width="16" height="12" viewBox="0 0 16 12" aria-hidden>
@@ -106,6 +167,28 @@ export function Reader({ bookId, at, onClose, onProgress }: Props) {
           <span className="reader__book">{book?.title ?? " "}</span>
           <span className="reader__where">{where.label ?? (book?.author || " ")}</span>
         </div>
+        {book && READABLE.has(book.format) && (
+          <div className="reader__zoom" role="group" aria-label={book.format === "pdf" ? "Zoom" : "Text size"}>
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={() => setZoom(zoom - lim.step)}
+              disabled={zoom <= lim.min}
+              aria-label={book.format === "pdf" ? "Zoom out" : "Smaller text"}
+            >
+              {book.format === "pdf" ? "−" : <span className="reader__a reader__a--small">A</span>}
+            </button>
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={() => setZoom(zoom + lim.step)}
+              disabled={zoom >= lim.max}
+              aria-label={book.format === "pdf" ? "Zoom in" : "Larger text"}
+            >
+              {book.format === "pdf" ? "+" : <span className="reader__a">A</span>}
+            </button>
+          </div>
+        )}
         {book && book.toc.length > 0 && (
           <button type="button" className="btn reader__toc-btn" onClick={() => setTocOpen((o) => !o)} aria-expanded={tocOpen}>
             Contents
@@ -115,9 +198,16 @@ export function Reader({ bookId, at, onClose, onProgress }: Props) {
 
       <div className="reader__stage">
         {error && <p className="notice">Couldn’t open this book: {error}</p>}
-        {book && book.format === "pdf" && <PdfView book={book} start={start} goRef={goRef} onReport={report} onError={setError} />}
+        {book && book.format === "pdf" && (
+          <PdfView book={book} start={start} goRef={goRef} onReport={report} onError={setError} zoom={zoom} preview={preview} pinch={pinch} />
+        )}
         {book && book.format !== "pdf" && READABLE.has(book.format) && (
-          <FoliateViewer book={book} start={start} goRef={goRef} onReport={report} onError={setError} />
+          <FoliateViewer book={book} start={start} goRef={goRef} onReport={report} onError={setError} zoom={zoom} preview={preview} pinch={pinch} />
+        )}
+        {(preview !== null || zoomNote) && (
+          <div className="reader__zoom-note" aria-live="polite">
+            {book?.format === "pdf" ? "Zoom" : "Text"} {Math.round((preview ?? zoom) * 100)}%
+          </div>
         )}
         {book && !READABLE.has(book.format) && (
           <p className="notice">
@@ -167,6 +257,12 @@ interface EngineProps {
   goRef: React.MutableRefObject<(target: string) => void>;
   onReport: (fraction: number, resumeAt: string, label?: string) => void;
   onError: (msg: string) => void;
+  /** Text size (reflowable) or page zoom (PDF), 1 = default. */
+  zoom: number;
+  /** Where a pinch in progress would land, for a live preview. */
+  preview: number | null;
+  /** Pinch handling for content the reader's own listeners can't see (the book's frames). */
+  pinch: () => PinchHandlers;
 }
 
 // ---------- foliate-js: EPUB, MOBI/AZW3, FB2, CBZ ----------
@@ -179,23 +275,61 @@ const MIME: Record<string, string> = {
   azw3: "application/vnd.amazon.ebook",
 };
 
-function bookCss(dark: boolean) {
+function bookCss(dark: boolean, size = 1) {
   return `
     html { color-scheme: ${dark ? "dark" : "light"}; }
     html, body { background: transparent !important; color: ${dark ? "#e6e3dc" : "#1d1f24"} !important; }
-    body { font-size: 1.08em; line-height: 1.6; }
+    body { font-size: ${(1.08 * size).toFixed(3)}em; line-height: 1.6; }
     a:link, a:visited { color: ${dark ? "#e0b46a" : "#1d2b44"} !important; }
     img, svg { ${dark ? "filter: brightness(.9);" : ""} }
   `;
 }
 
-function FoliateViewer({ book, start, goRef, onReport, onError }: EngineProps) {
+const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+function FoliateViewer({ book, start, goRef, onReport, onError, zoom, pinch }: EngineProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<FoliateView | null>(null);
+  // Which way the last page turn went ("left"/"right" on screen) and when, so a turn that
+  // crosses into another chapter can slide in from the same side.
+  const turnRef = useRef<{ side: -1 | 1; at: number } | null>(null);
+  const sectionRef = useRef<number | null>(null);
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
+  // A new text size re-lays the book out around the current spot.
+  useEffect(() => {
+    viewRef.current?.renderer?.setStyles?.(bookCss(isDark(), zoom));
+  }, [zoom]);
+
+  const turn = useCallback((side: -1 | 1) => {
+    const view = viewRef.current;
+    if (!view) return;
+    turnRef.current = { side, at: performance.now() };
+    void (side < 0 ? view.goLeft() : view.goRight());
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     const host = hostRef.current!;
+    const pageKeys = (e: KeyboardEvent) => keyTurn(e);
+    // Two-finger sideways swipe: one page per gesture, then wait for the gesture to finish.
+    let acc = 0;
+    let lockedUntil = 0;
+    let idle = 0;
+    const swipe = (e: WheelEvent) => {
+      if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+      e.preventDefault();
+      clearTimeout(idle);
+      idle = window.setTimeout(() => (acc = 0), 180);
+      const now = performance.now();
+      if (now < lockedUntil) return void (lockedUntil = now + 180);
+      acc += e.deltaX;
+      if (Math.abs(acc) < 50) return;
+      turn(acc > 0 ? 1 : -1);
+      acc = 0;
+      lockedUntil = now + 450;
+    };
+    host.addEventListener("wheel", swipe, { passive: false });
     (async () => {
       await import("foliate-js/view.js");
       const res = await fetch(api.fileUrl(book.id));
@@ -208,15 +342,42 @@ function FoliateViewer({ book, start, goRef, onReport, onError }: EngineProps) {
       host.append(view);
       viewRef.current = view;
       view.addEventListener("relocate", (e) => {
-        const loc = (e as CustomEvent<{ fraction: number; cfi: string; tocItem?: { label: string } }>).detail;
+        const loc = (e as CustomEvent<{ fraction: number; cfi: string; tocItem?: { label: string }; section?: { current: number } }>).detail;
         onReport(loc.fraction ?? 0, loc.cfi, loc.tocItem?.label?.trim());
+        // Pages within a chapter slide in the renderer itself; a new chapter is a fresh page,
+        // so slide that in from the side the reader turned towards.
+        const section = loc.section?.current ?? null;
+        const t = turnRef.current;
+        const changed = section !== sectionRef.current && sectionRef.current !== null;
+        if (changed && t && performance.now() - t.at < 1500 && !reducedMotion()) {
+          view.renderer.animate(
+            [
+              { transform: `translateX(${t.side * 38}%)`, opacity: 0.35 },
+              { transform: "translateX(0)", opacity: 1 },
+            ],
+            { duration: 360, easing: "cubic-bezier(0.22, 0.8, 0.2, 1)" },
+          );
+        }
+        // A turn can report several locations; only the chapter change uses it up.
+        if (changed) turnRef.current = null;
+        sectionRef.current = section;
+      });
+      // Keys and sideways trackpad swipes inside the page itself (it's an iframe, so these
+      // don't reach the document's own listeners).
+      view.addEventListener("load", (e) => {
+        const doc = (e as CustomEvent<{ doc: Document }>).detail.doc;
+        doc.addEventListener("keydown", pageKeys);
+        doc.addEventListener("wheel", swipe, { passive: false });
+        watchPinch(doc, pinch());
       });
       await view.open(file);
+      // Slide between pages, following a finger on touch screens (foliate's "animated" mode).
+      if (!reducedMotion()) view.renderer.setAttribute("animated", "");
       view.renderer.setAttribute("max-inline-size", "680px");
       view.renderer.setAttribute("margin", "56px");
       view.renderer.setAttribute("gap", "6%");
       // Fixed-layout (pre-paginated) books get a renderer without setStyles.
-      view.renderer.setStyles?.(bookCss(isDark()));
+      view.renderer.setStyles?.(bookCss(isDark(), zoomRef.current));
       goRef.current = (target) => void view.goTo(target);
       // A saved spot can stop fitting (e.g. a book repacked from comic to EPUB): start over then.
       if (start) await view.init({ lastLocation: start }).catch(() => view.init({ showTextStart: true }));
@@ -224,10 +385,12 @@ function FoliateViewer({ book, start, goRef, onReport, onError }: EngineProps) {
     })().catch((e: Error) => !cancelled && onError(e.message));
 
     const theme = matchMedia("(prefers-color-scheme: dark)");
-    const retheme = () => viewRef.current?.renderer?.setStyles?.(bookCss(isDark()));
+    const retheme = () => viewRef.current?.renderer?.setStyles?.(bookCss(isDark(), zoomRef.current));
     theme.addEventListener("change", retheme);
     return () => {
       cancelled = true;
+      clearTimeout(idle);
+      host.removeEventListener("wheel", swipe);
       theme.removeEventListener("change", retheme);
       viewRef.current?.close();
       viewRef.current?.remove();
@@ -237,21 +400,21 @@ function FoliateViewer({ book, start, goRef, onReport, onError }: EngineProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [book.id]);
 
+  const keyTurn = (e: KeyboardEvent) => {
+    if (e.target instanceof HTMLElement && e.target.closest("input, textarea, .reader__toc")) return;
+    if (e.key === "ArrowLeft" || e.key === "PageUp") (e.preventDefault(), turn(-1));
+    if (e.key === "ArrowRight" || e.key === "PageDown" || e.key === " ") (e.preventDefault(), turn(1));
+  };
   useEffect(() => {
-    const key = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLElement && e.target.closest("input, textarea, .reader__toc")) return;
-      if (e.key === "ArrowLeft" || e.key === "PageUp") void viewRef.current?.goLeft();
-      if (e.key === "ArrowRight" || e.key === "PageDown" || e.key === " ") void viewRef.current?.goRight();
-    };
-    document.addEventListener("keydown", key);
-    return () => document.removeEventListener("keydown", key);
-  }, []);
+    document.addEventListener("keydown", keyTurn);
+    return () => document.removeEventListener("keydown", keyTurn);
+  });
 
   return (
     <div className="reader__paged">
-      <button type="button" className="reader__turn reader__turn--prev" aria-label="Previous page" onClick={() => void viewRef.current?.goLeft()} />
+      <button type="button" className="reader__turn reader__turn--prev" aria-label="Previous page" onClick={() => turn(-1)} />
       <div className="reader__host" ref={hostRef} />
-      <button type="button" className="reader__turn reader__turn--next" aria-label="Next page" onClick={() => void viewRef.current?.goRight()} />
+      <button type="button" className="reader__turn reader__turn--next" aria-label="Next page" onClick={() => turn(1)} />
     </div>
   );
 }
@@ -260,7 +423,7 @@ function FoliateViewer({ book, start, goRef, onReport, onError }: EngineProps) {
 
 type PdfDoc = import("pdfjs-dist").PDFDocumentProxy;
 
-function PdfView({ book, start, goRef, onReport, onError }: EngineProps) {
+function PdfView({ book, start, goRef, onReport, onError, zoom, preview }: EngineProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [doc, setDoc] = useState<PdfDoc | null>(null);
   const [ratio, setRatio] = useState(1.414);
@@ -295,10 +458,17 @@ function PdfView({ book, start, goRef, onReport, onError }: EngineProps) {
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => setWidth(Math.min(900, el.clientWidth - 32)));
+    const ro = new ResizeObserver(() => setFit(Math.min(900, el.clientWidth - 32)));
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+  const [fit, setFit] = useState(800);
+  useEffect(() => setWidth(Math.round(fit * zoom)), [fit, zoom]);
+  // Zooming keeps the middle of the page in the middle of the screen.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollLeft = (el.scrollWidth - el.clientWidth) / 2;
+  }, [width]);
 
   const goToPage = useCallback((p: number, smooth = true) => {
     const el = scrollRef.current?.querySelector<HTMLElement>(`[data-page="${p}"]`);
@@ -383,10 +553,15 @@ function PdfView({ book, start, goRef, onReport, onError }: EngineProps) {
 
   return (
     <div className="reader__scroll" ref={scrollRef}>
-      {doc &&
-        Array.from({ length: doc.numPages }, (_, i) => (
-          <div key={i} className="pdf-page" data-page={i + 1} style={{ width, aspectRatio: `1 / ${ratio}` }} />
-        ))}
+      <div
+        className="pdf-pages"
+        style={preview !== null ? { transform: `scale(${preview / zoom})`, transformOrigin: `50% ${scrollRef.current ? scrollRef.current.scrollTop + scrollRef.current.clientHeight / 2 : 0}px` } : undefined}
+      >
+        {doc &&
+          Array.from({ length: doc.numPages }, (_, i) => (
+            <div key={i} className="pdf-page" data-page={i + 1} style={{ width, aspectRatio: `1 / ${ratio}` }} />
+          ))}
+      </div>
     </div>
   );
 }
