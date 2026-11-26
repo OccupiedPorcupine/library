@@ -1,4 +1,5 @@
 import multipart from "@fastify/multipart";
+import type { ChatAction } from "./metadata/ai.js";
 import fastifyStatic from "@fastify/static";
 import Fastify from "fastify";
 import fs from "node:fs";
@@ -201,6 +202,47 @@ export async function buildApp(
     async (req) => {
       library.moveBooks(req.body.bookIds, req.body.to, req.body.from ?? null);
       return { ok: true };
+    },
+  );
+
+  // Chat with the AI librarian. It only proposes changes; each is applied on its own once confirmed.
+  app.post<{ Body: { messages: { role: "user" | "assistant"; content: string }[] } }>(
+    "/api/chat",
+    {
+      schema: {
+        body: {
+          type: "object",
+          required: ["messages"],
+          properties: {
+            messages: {
+              type: "array",
+              minItems: 1,
+              maxItems: 40,
+              items: {
+                type: "object",
+                required: ["role", "content"],
+                properties: { role: { enum: ["user", "assistant"] }, content: { type: "string", maxLength: 8000 } },
+              },
+            },
+          },
+        },
+      },
+    },
+    async (req) => library.chat(req.body.messages),
+  );
+  app.post<{ Body: { action: ChatAction } }>(
+    "/api/chat/apply",
+    { schema: { body: { type: "object", required: ["action"], properties: { action: { type: "object" } } } } },
+    async (req) => {
+      const a = req.body.action;
+      return library.applyChatAction({
+        type: a.type,
+        bookIds: Array.isArray(a.bookIds) ? a.bookIds.map(String) : [],
+        shelfId: a.shelfId ?? null,
+        fromShelfId: a.fromShelfId ?? null,
+        name: a.name ?? null,
+        summary: String(a.summary ?? ""),
+      });
     },
   );
 
