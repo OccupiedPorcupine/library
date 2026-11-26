@@ -8,7 +8,7 @@ The short version:
 browser ──HTTPS──> Cloudflare (Access login) ──tunnel──> cloudflared ─┐
                                                                        ├─> Docker container :8080
 phone/laptop on tailnet ──HTTPS──> tailscale serve ────────────────────┘
-                                   (all inside LXC 103 "library" on Proxmox host "thinkpad")
+                                   (all inside one LXC container "library" on a Proxmox host)
 ```
 
 Nothing on the home network is opened to the internet. Both paths are outbound connections from the container.
@@ -23,30 +23,30 @@ Nothing on the home network is opened to the internet. Both paths are outbound c
 | **Tailscale** | A private network between your own devices. `tailscale serve` gives the app an HTTPS address only your devices can reach. |
 | **Cloudflare Tunnel** | `cloudflared` runs in the container and dials out to Cloudflare, so the public domain reaches the app without port forwarding. |
 | **Cloudflare Access** | A login page Cloudflare shows before anyone reaches the app. Needed because the app has no login of its own yet. |
-| **DNS** | `library.munyau.space` points at the tunnel. Cloudflare creates this record when you add the tunnel's public hostname. |
+| **DNS** | `library.example.com` points at the tunnel. Cloudflare creates this record when you add the tunnel's public hostname. |
 
 ## 1. Create the container (Proxmox)
 
 On the Proxmox host (`ssh root@<proxmox-host>`):
 
 ```sh
-pvesh get /cluster/nextid            # next free ID, e.g. 103
+pvesh get /cluster/nextid            # next free ID, use it as <ID> below
 pveam list local                     # templates already downloaded
 
-pct create 103 local:vztmpl/debian-13-standard_13.6-1_amd64.tar.zst \
+pct create <ID> local:vztmpl/debian-13-standard_13.6-1_amd64.tar.zst \
   --hostname library --cores 2 --memory 2048 --swap 512 \
   --rootfs local:16 \
   --mp0 local:32,mp=/srv/books,backup=1 \
-  --net0 name=eth0,bridge=vmbr0,gw=10.10.10.1,ip=10.10.10.103/24 \
+  --net0 name=eth0,bridge=vmbr0,gw=<gateway-ip>,ip=<container-ip>/24 \
   --nameserver "1.1.1.1 9.9.9.9" \
   --features nesting=1,keyctl=1 --unprivileged 1 --onboot 1
 ```
 
 - `nesting=1,keyctl=1` lets Docker run inside the container.
 - `--mp0` is a separate disk for the book files, so the system disk can be rebuilt without touching them.
-- The network matches the other guests: private bridge `vmbr0`, IP `10.10.10.<ID>`.
+- Use the same bridge and subnet as your other guests.
 
-Tailscale needs the TUN device, so add these two lines to `/etc/pve/lxc/103.conf` before starting:
+Tailscale needs the TUN device, so add these two lines to `/etc/pve/lxc/<ID>.conf` before starting:
 
 ```
 lxc.cgroup2.devices.allow: c 10:200 rwm
@@ -56,8 +56,8 @@ lxc.mount.entry: /dev/net/tun dev/net/tun none bind,create=file
 Start it and get a shell inside:
 
 ```sh
-pct start 103
-pct enter 103
+pct start <ID>
+pct enter <ID>
 ```
 
 The container has no root password; `pct enter` from the Proxmox shell is how you get in.
@@ -134,7 +134,7 @@ Do the login (Access) **before** the tunnel's public hostname, so the site is ne
 
 Cloudflare dashboard → **Zero Trust → Access → Applications → Add an application → Self-hosted**:
 
-- Domain: `library.munyau.space`
+- Domain: `library.example.com`
 - Policy: **Allow**, Include → **Emails** → your email
 - One-time PIN login works without any extra setup.
 
@@ -143,10 +143,10 @@ Cloudflare dashboard → **Zero Trust → Access → Applications → Add an app
 **Zero Trust → Networks → Tunnels → Create a tunnel → Cloudflared**, name it after the app:
 
 1. On the install screen pick **Debian** and copy only the `cloudflared service install <token>` command. That token is a secret: don't paste it into chats, docs or git.
-2. Run it inside the container (`pct enter 103`, drop the `sudo`). The connector turns **Connected**.
-3. **Public hostname**: subdomain `library`, domain `munyau.space`, type `HTTP`, URL `localhost:8080`. Save. Cloudflare creates the DNS record.
+2. Run it inside the container (`pct enter <ID>`, drop the `sudo`). The connector turns **Connected**.
+3. **Public hostname**: subdomain `library`, domain `example.com` (your domain), type `HTTP`, URL `localhost:8080`. Save. Cloudflare creates the DNS record.
 
-Check from any browser: `https://library.munyau.space` should show the Cloudflare login first, then the app.
+Check from any browser: `https://library.example.com` should show the Cloudflare login first, then the app.
 
 ## Reusing this for a new project
 
@@ -160,9 +160,9 @@ Check from any browser: `https://library.munyau.space` should show the Cloudflar
 
 | What | Where |
 | --- | --- |
-| App code and `.env` | `/opt/library` in CT 103 |
+| App code and `.env` | `/opt/library` in the container |
 | Database | `/opt/library/data/library.db` |
-| Book files | `/srv/books` in CT 103 (separate Proxmox volume) |
+| Book files | `/srv/books` in the container (separate Proxmox volume) |
 | Tunnel config | Cloudflare dashboard (Zero Trust → Networks → Tunnels) |
 | Login rules | Cloudflare dashboard (Zero Trust → Access → Applications) |
 
