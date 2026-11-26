@@ -7,6 +7,8 @@ import { ShelfTabs } from "./components/ShelfTabs";
 import { api, type Book, type LibraryOverview } from "./lib/api";
 
 const UNSHELVED = "unshelved";
+/** Binding colours for books that are still uploading (the server picks the real one). */
+const PENDING_SPINES = ["#2f4b6e", "#7a2e35", "#2f5a46", "#5b4a7a", "#8a6a3a", "#3a3d44"];
 
 export function App() {
   const [data, setData] = useState<LibraryOverview | null>(null);
@@ -52,13 +54,17 @@ export function App() {
     setDetailId(null);
   }, []);
 
-  const load = useCallback(() => {
-    api
-      .library()
-      .then((d) => (setData(d), setError(null)))
-      .catch((e: Error) => setError(e.message));
-  }, []);
-  useEffect(load, [load]);
+  const [pending, setPending] = useState<Book[]>([]);
+
+  const load = useCallback(
+    () =>
+      api
+        .library()
+        .then((d) => (setData(d), setError(null)))
+        .catch((e: Error) => setError(e.message)),
+    [],
+  );
+  useEffect(() => void load(), [load]);
 
   useEffect(() => {
     if (!toast) return;
@@ -69,9 +75,41 @@ export function App() {
   const upload = useCallback(
     async (files: File[]) => {
       if (!files.length) return;
-      setToast(`Uploading ${files.length} ${files.length === 1 ? "file" : "files"}…`);
+      // Each file gets a placeholder book that builds up from the bottom as its bytes arrive.
+      const stamp = Date.now();
+      const placeholders: Book[] = files.map((f, i) => ({
+        id: `uploading-${stamp}-${i}`,
+        title: f.name.replace(/\.[^.]+$/, ""),
+        author: null,
+        format: (f.name.split(".").pop() ?? "").toLowerCase(),
+        size: f.size,
+        coverUrl: null,
+        spineColor: PENDING_SPINES[(stamp + i) % PENDING_SPINES.length]!,
+        progress: 0,
+        finishedAt: null,
+        addedAt: new Date().toISOString(),
+        transfer: 0,
+      }));
+      setPending((p) => [...placeholders, ...p]);
+      requestAnimationFrame(() =>
+        document.getElementById(`shelf-${UNSHELVED}`)?.scrollIntoView({ behavior: "smooth", block: "start" }),
+      );
+      const ids = new Set(placeholders.map((b) => b.id));
+      const total = files.reduce((n, f) => n + f.size, 0) || 1;
+      const onProgress = (loaded: number, sent: number) => {
+        // The request carries some form overhead; scale bytes sent onto the files in order.
+        const bytes = (loaded / sent) * total;
+        let offset = 0;
+        const t = new Map<string, number>();
+        placeholders.forEach((b, i) => {
+          const size = files[i]!.size || 1;
+          t.set(b.id, Math.min(1, Math.max(0, (bytes - offset) / size)));
+          offset += files[i]!.size;
+        });
+        setPending((p) => p.map((b) => (t.has(b.id) ? { ...b, transfer: t.get(b.id) } : b)));
+      };
       try {
-        const { results } = await api.upload(files);
+        const { results } = await api.upload(files, { onProgress });
         const failed = results.filter((r) => r.error);
         const dup = results.filter((r) => r.duplicate).length;
         const added = results.length - failed.length - dup;
@@ -80,9 +118,11 @@ export function App() {
             .filter(Boolean)
             .join(" · "),
         );
-        load();
+        await load();
       } catch (e) {
         setToast(`Upload failed: ${(e as Error).message}`);
+      } finally {
+        setPending((p) => p.filter((b) => !ids.has(b.id)));
       }
     },
     [load],
@@ -119,9 +159,11 @@ export function App() {
     const q = deferredQuery.trim().toLowerCase();
     const match = (b: Book) => !q || b.title.toLowerCase().includes(q) || (b.author ?? "").toLowerCase().includes(q);
     const all = [...data.shelves];
-    if (data.unshelved.length) all.push({ id: UNSHELVED, name: "Unshelved", position: 1e9, books: data.unshelved });
+    // New uploads land unshelved; books still uploading show there first.
+    const loose = [...pending, ...data.unshelved];
+    if (loose.length) all.push({ id: UNSHELVED, name: "Unshelved", position: 1e9, books: loose });
     return all.map((s) => ({ ...s, books: s.books.filter(match) })).filter((s) => s.books.length > 0);
-  }, [data, deferredQuery]);
+  }, [data, pending, deferredQuery]);
 
   const total = data ? new Set([...data.shelves.flatMap((s) => s.books), ...data.unshelved].map((b) => b.id)).size : 0;
   const inProgress = data
@@ -153,9 +195,9 @@ export function App() {
 
         {error && <p className="notice">Couldn’t load the library: {error}</p>}
 
-        {data && total === 0 && <EmptyState onUpload={upload} />}
+        {data && total === 0 && pending.length === 0 && <EmptyState onUpload={upload} />}
 
-        {data && total > 0 && (
+        {data && (total > 0 || pending.length > 0) && (
           <>
             <ShelfTabs
               shelves={shelves.map((s) => ({ id: s.id, name: s.name, count: s.books.length }))}

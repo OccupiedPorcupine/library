@@ -40,7 +40,6 @@ const mod = (a: number, m: number) => ((a % m) + m) % m;
 export function Shelf3D({ index, id, name, books, onDetails, onRead }: Props) {
   const stageRef = useRef<HTMLDivElement>(null);
   const booksRef = useRef<HTMLDivElement>(null);
-  const cursorRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 1000, h: 300 });
   // "slot" is an unbounded position along the shelf; on long shelves it wraps round.
   const [slot, setSlot] = useState(() => initialIndex(books));
@@ -185,6 +184,15 @@ export function Shelf3D({ index, id, name, books, onDetails, onRead }: Props) {
     }
   }, [loop, n]);
 
+  // Bring a book that has just started uploading to the front.
+  const movingId = books.find((b) => b.transfer !== undefined)?.id;
+  useEffect(() => {
+    if (!movingId) return;
+    const i = books.findIndex((b) => b.id === movingId);
+    goTo(target.current - mod(target.current, n) + i);
+    // Only when a new upload appears, not on every progress tick.
+  }, [movingId]);
+
   // Re-lay out whenever the mounted set or geometry changes.
   useLayoutEffect(layout, [layout, from, to]);
   useEffect(() => () => cancelAnimationFrame(raf.current), []);
@@ -198,8 +206,6 @@ export function Shelf3D({ index, id, name, books, onDetails, onRead }: Props) {
     drag.current = { x: e.clientX, y: e.clientY, lx: e.clientX, lt: now, pos: pos.current, v: 0, axis: "", id: e.pointerId };
   };
   const onPointerMove = (e: PointerEvent) => {
-    cursorRef.current?.classList.add("is-on");
-    moveCursor(e);
     tilt(e);
     const d = drag.current;
     if (!d) return;
@@ -243,7 +249,8 @@ export function Shelf3D({ index, id, name, books, onDetails, onRead }: Props) {
     const el = (e.target as HTMLElement).closest<HTMLElement>(".tape");
     const i = el ? Number(el.dataset.i) : NaN;
     if (Number.isNaN(i)) return;
-    if (i === target.current && Math.abs(pos.current - i) < 0.05) open(books[mod(i, n)]!);
+    const b = books[mod(i, n)]!;
+    if (i === target.current && Math.abs(pos.current - i) < 0.05) b.transfer === undefined && open(b);
     else goTo(i);
   };
 
@@ -276,7 +283,8 @@ export function Shelf3D({ index, id, name, books, onDetails, onRead }: Props) {
     const start = target.current - mod(target.current, n);
     if (e.key === "Home") (goTo(start), e.preventDefault());
     if (e.key === "End") (goTo(start + n - 1), e.preventDefault());
-    if (e.key === "Enter" && n) open(books[mod(target.current, n)]!);
+    const b = n ? books[mod(target.current, n)] : undefined;
+    if (e.key === "Enter" && b && b.transfer === undefined) open(b);
   };
 
   // Arrow keys also browse the shelf in the middle of the screen, without focusing it first.
@@ -296,14 +304,6 @@ export function Shelf3D({ index, id, name, books, onDetails, onRead }: Props) {
     return () => document.removeEventListener("keydown", key);
   }, []);
 
-  // Scrolling the page moves the shelf out from under a still pointer: hide the round cursor.
-  useEffect(() => {
-    if (!finePointer) return;
-    const hide = () => cursorRef.current?.classList.remove("is-on");
-    addEventListener("scroll", hide, { passive: true });
-    return () => removeEventListener("scroll", hide);
-  }, []);
-
   // The view tilts a little towards the pointer, so the books feel solid.
   const tilt = (e: PointerEvent) => {
     const el = booksRef.current;
@@ -314,18 +314,9 @@ export function Shelf3D({ index, id, name, books, onDetails, onRead }: Props) {
     el.style.perspectiveOrigin = `${(50 - nx * 18).toFixed(1)}% ${(12 - ny * 14).toFixed(1)}%`;
   };
 
-  // A round cursor that says what a click will do.
-  const moveCursor = (e: PointerEvent) => {
-    const c = cursorRef.current;
-    if (!c || !finePointer) return;
-    c.style.transform = `translate3d(${e.clientX}px,${e.clientY}px,0)`;
-    const el = (e.target as HTMLElement).closest<HTMLElement>(".tape");
-    const label = drag.current?.axis === "h" ? "Drag" : el && Number(el.dataset.i) === target.current ? "About" : el ? "Pick" : "Drag";
-    if (c.dataset.label !== label) (c.dataset.label = label), (c.firstElementChild!.textContent = label);
-  };
-
   const current = books[focus];
-  const pct = current ? Math.round(current.progress * 100) : 0;
+  const moving = current?.transfer !== undefined;
+  const pct = current ? Math.round((moving ? current.transfer! : current.progress) * 100) : 0;
   const num = String(index + 1).padStart(2, "0");
 
   return (
@@ -341,7 +332,7 @@ export function Shelf3D({ index, id, name, books, onDetails, onRead }: Props) {
       </header>
 
       <div
-        className={`stage${finePointer ? " has-cursor" : ""}`}
+        className="stage"
         ref={stageRef}
         tabIndex={0}
         role="group"
@@ -353,9 +344,7 @@ export function Shelf3D({ index, id, name, books, onDetails, onRead }: Props) {
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={() => ((drag.current = null), goTo(pos.current))}
-        onPointerEnter={() => cursorRef.current?.classList.add("is-on")}
         onPointerLeave={() => {
-          cursorRef.current?.classList.remove("is-on");
           if (booksRef.current) booksRef.current.style.perspectiveOrigin = "";
         }}
       >
@@ -371,11 +360,6 @@ export function Shelf3D({ index, id, name, books, onDetails, onRead }: Props) {
             })}
         </div>
       </div>
-      {finePointer && (
-        <div className="shelf-cursor" ref={cursorRef} aria-hidden>
-          <span>Drag</span>
-        </div>
-      )}
 
       {current && (
         <div className="caption" aria-live="polite">
@@ -385,20 +369,28 @@ export function Shelf3D({ index, id, name, books, onDetails, onRead }: Props) {
             </span>
             <h3 className="caption__title">{current.title}</h3>
             <span className="caption__progress">
-              <span className="meter" style={{ "--p": current.finishedAt ? 1 : current.progress } as CSSProperties} />
-              {current.finishedAt ? "Finished" : pct ? `${pct}% read` : "Not started"}
+              <span className="meter" style={{ "--p": moving ? current.transfer : current.finishedAt ? 1 : current.progress } as CSSProperties} />
+              {moving ? (pct < 100 ? `Uploading ${pct}%` : "Adding to library…") : current.finishedAt ? "Finished" : pct ? `${pct}% read` : "Not started"}
             </span>
           </div>
           <div className="caption__nav">
             <button type="button" className="round-btn" onClick={() => goTo(target.current - 1)} disabled={!loop && focus <= 0} aria-label="Previous book">
               <Arrow dir="left" />
             </button>
-            <button type="button" className="btn" onClick={() => onDetails(current)}>
-              Details
-            </button>
-            <button type="button" className="btn btn--primary" onClick={() => onRead(current)}>
-              Read
-            </button>
+            {moving ? (
+              <span className="btn btn--primary is-disabled" aria-disabled>
+                Read
+              </span>
+            ) : (
+              <>
+                <button type="button" className="btn" onClick={() => onDetails(current)}>
+                  Details
+                </button>
+                <button type="button" className="btn btn--primary" onClick={() => onRead(current)}>
+                  Read
+                </button>
+              </>
+            )}
             <button type="button" className="round-btn" onClick={() => goTo(target.current + 1)} disabled={!loop && focus >= n - 1} aria-label="Next book">
               <Arrow dir="right" />
             </button>
