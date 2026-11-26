@@ -36,8 +36,16 @@
   --spotlight: radial-gradient(60% 90% at 50% 0%, rgba(255, 255, 255, 0.85), rgba(255, 255, 255, 0) 70%);
 
   /* Reading progress light (#9): unread books are dimmed, light rises from the bottom */
-  --dim: rgba(246, 245, 242, 0.62);
-  --dim-edge: rgba(255, 248, 230, 0.55);
+  --dim: rgba(246, 245, 242, 0.5);
+  --dim-edge: rgba(255, 244, 222, 0.35);
+
+  /* Shelf stage (3D shelves) */
+  --glow: #c9974a;
+  --pool: rgba(255, 255, 255, 0.95);
+  --wall-shade: rgba(25, 28, 35, 0.05);
+  --ledge-lip: linear-gradient(to bottom, #ece9e3, #dedad2);
+  --contact: rgba(25, 28, 35, 0.22);
+  --reflect: rgba(25, 28, 35, 0.1);
 
   /* Shape & type */
   --radius-s: 6px;
@@ -78,7 +86,13 @@
     --ledge-shadow: 0 18px 30px -12px rgba(0, 0, 0, 0.7);
     --spotlight: radial-gradient(55% 95% at 50% 0%, rgba(255, 226, 180, 0.13), rgba(255, 226, 180, 0) 70%);
     --dim: rgba(14, 15, 18, 0.66);
-    --dim-edge: rgba(255, 214, 150, 0.45);
+    --dim-edge: rgba(255, 214, 150, 0.16);
+    --glow: #e0b46a;
+    --pool: rgba(255, 226, 180, 0.11);
+    --wall-shade: rgba(0, 0, 0, 0.25);
+    --ledge-lip: linear-gradient(to bottom, #1c1e23, #15171a);
+    --contact: rgba(0, 0, 0, 0.6);
+    --reflect: rgba(255, 236, 205, 0.09);
   }
 }
 
@@ -106,7 +120,13 @@
   --ledge-shadow: 0 18px 30px -12px rgba(0, 0, 0, 0.7);
   --spotlight: radial-gradient(55% 95% at 50% 0%, rgba(255, 226, 180, 0.13), rgba(255, 226, 180, 0) 70%);
   --dim: rgba(14, 15, 18, 0.66);
-  --dim-edge: rgba(255, 214, 150, 0.45);
+  --dim-edge: rgba(255, 214, 150, 0.16);
+  --glow: #e0b46a;
+  --pool: rgba(255, 226, 180, 0.11);
+  --wall-shade: rgba(0, 0, 0, 0.25);
+  --ledge-lip: linear-gradient(to bottom, #1c1e23, #15171a);
+  --contact: rgba(0, 0, 0, 0.6);
+  --reflect: rgba(255, 236, 205, 0.09);
 }
 
 @media (prefers-reduced-motion: reduce) {
