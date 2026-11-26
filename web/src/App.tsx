@@ -1,7 +1,7 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { SettingsMenu } from "./components/SettingsMenu";
-import { ShelfIndex } from "./components/ShelfIndex";
-import { ShelfRow } from "./components/ShelfRow";
+import { Shelf3D } from "./components/Shelf3D";
+import { ShelfTabs } from "./components/ShelfTabs";
 import { api, type Book, type LibraryOverview } from "./lib/api";
 
 const UNSHELVED = "unshelved";
@@ -96,7 +96,11 @@ export function App() {
 
       <main className="main">
         <header className="hero">
-          <h1 className="hero__title">Your library.</h1>
+          <p className="hero__eyebrow">
+            <span className="hero__dot" aria-hidden />
+            Personal library
+          </p>
+          <h1 className="hero__title">Your shelves</h1>
           <p className="hero__sub">
             {data ? (
               <>
@@ -114,8 +118,8 @@ export function App() {
         {data && total === 0 && <EmptyState onUpload={upload} />}
 
         {data && total > 0 && (
-          <div className="layout">
-            <ShelfIndex
+          <>
+            <ShelfTabs
               shelves={shelves.map((s) => ({ id: s.id, name: s.name, count: s.books.length }))}
               onCreate={(name) =>
                 api
@@ -126,11 +130,11 @@ export function App() {
             />
             <div className="shelves">
               {shelves.map((s, i) => (
-                <ShelfRow key={s.id} index={i} id={s.id} name={s.name} books={s.books} />
+                <Shelf3D key={s.id} index={i} id={s.id} name={s.name} books={s.books} />
               ))}
               {shelves.length === 0 && <p className="notice">No books match “{query}”.</p>}
             </div>
-          </div>
+          </>
         )}
       </main>
 
@@ -189,7 +193,7 @@ function EmptyState({ onUpload }: { onUpload: (f: File[]) => void }) {
   return (
     <div className="empty">
       <div className="empty__shelf" aria-hidden>
-        <div className="shelf__ledge" />
+        <div className="empty__ledge" />
       </div>
       <h2>An empty shelf, waiting.</h2>
       <p>Drop EPUB, PDF, CBZ, MOBI, TXT or Markdown files anywhere on this page, or choose them below.</p>
