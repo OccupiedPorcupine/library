@@ -1,5 +1,6 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { BookPanel } from "./components/BookPanel";
+import { READABLE, Reader } from "./components/Reader";
 import { SettingsMenu } from "./components/SettingsMenu";
 import { Shelf3D } from "./components/Shelf3D";
 import { ShelfTabs } from "./components/ShelfTabs";
@@ -15,10 +16,11 @@ export function App() {
   const [dragging, setDragging] = useState(false);
   const deferredQuery = useDeferredValue(query);
   const [detailId, setDetailId] = useState<string | null>(bookFromHash);
+  const [reading, setReading] = useState(readFromHash);
 
   // The open book lives in the URL (#book=<id>), so Back closes the panel and links can be shared.
   useEffect(() => {
-    const sync = () => setDetailId(bookFromHash());
+    const sync = () => (setDetailId(bookFromHash()), setReading(readFromHash()));
     addEventListener("popstate", sync);
     addEventListener("hashchange", sync);
     return () => (removeEventListener("popstate", sync), removeEventListener("hashchange", sync));
@@ -28,6 +30,21 @@ export function App() {
     history.pushState({ panel: true }, "", `#book=${encodeURIComponent(b.id)}`);
     setDetailId(b.id);
   }, []);
+  // The reader sits on top of the preview: #read=<id>&at=<href or page>. Back returns to the preview.
+  const openReader = useCallback((id: string, at?: string) => {
+    const q = new URLSearchParams({ read: id });
+    if (at) q.set("at", at);
+    history.pushState({ reader: true }, "", `#${q}`);
+    setReading({ id, at: at ?? null });
+  }, []);
+  const closeReader = useCallback(() => {
+    if (history.state?.reader) return history.back();
+    const id = readFromHash()?.id;
+    history.replaceState(null, "", id ? `#book=${encodeURIComponent(id)}` : location.pathname + location.search);
+    setReading(null);
+    setDetailId(id ?? null);
+  }, []);
+
   const closeDetails = useCallback(() => {
     if (history.state?.panel) return history.back();
     // Opened from a link: clear the hash without leaving the app.
@@ -107,7 +124,7 @@ export function App() {
   }, [data, deferredQuery]);
 
   const total = data ? new Set([...data.shelves.flatMap((s) => s.books), ...data.unshelved].map((b) => b.id)).size : 0;
-  const reading = data
+  const inProgress = data
     ? new Set([...data.shelves.flatMap((s) => s.books), ...data.unshelved].filter((b) => b.progress > 0 && !b.finishedAt).map((b) => b.id)).size
     : 0;
 
@@ -126,7 +143,7 @@ export function App() {
             {data ? (
               <>
                 {total} {total === 1 ? "book" : "books"}
-                {reading > 0 && <> · {reading} in progress</>}
+                {inProgress > 0 && <> · {inProgress} in progress</>}
               </>
             ) : (
               " "
@@ -151,7 +168,15 @@ export function App() {
             />
             <div className="shelves">
               {shelves.map((s, i) => (
-                <Shelf3D key={s.id} index={i} id={s.id} name={s.name} books={s.books} onDetails={openDetails} />
+                <Shelf3D
+                  key={s.id}
+                  index={i}
+                  id={s.id}
+                  name={s.name}
+                  books={s.books}
+                  onDetails={openDetails}
+                  onRead={(b) => (READABLE.has(b.format) ? openReader(b.id) : window.open(api.fileUrl(b.id), "_blank", "noopener"))}
+                />
               ))}
               {shelves.length === 0 && <p className="notice">No books match “{query}”.</p>}
             </div>
@@ -159,7 +184,10 @@ export function App() {
         )}
       </main>
 
-      {detailId && <BookPanel bookId={detailId} onClose={closeDetails} onChanged={load} />}
+      {detailId && !reading && (
+        <BookPanel bookId={detailId} onClose={closeDetails} onChanged={load} onRead={(at) => openReader(detailId, at)} />
+      )}
+      {reading && <Reader key={`${reading.id}:${reading.at}`} bookId={reading.id} at={reading.at} onClose={closeReader} onProgress={load} />}
 
       {dragging && (
         <div className="dropzone" aria-hidden>
@@ -173,9 +201,14 @@ export function App() {
   );
 }
 
+const hashParams = () => new URLSearchParams(location.hash.slice(1));
 function bookFromHash(): string | null {
-  const m = /^#book=(.+)$/.exec(location.hash);
-  return m ? decodeURIComponent(m[1]!) : null;
+  return hashParams().get("book");
+}
+function readFromHash(): { id: string; at: string | null } | null {
+  const p = hashParams();
+  const id = p.get("read");
+  return id ? { id, at: p.get("at") } : null;
 }
 
 function TopBar({ query, onQuery, onUpload }: { query: string; onQuery: (q: string) => void; onUpload: (f: File[]) => void }) {

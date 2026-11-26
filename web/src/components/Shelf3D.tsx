@@ -10,6 +10,8 @@ interface Props {
   books: Book[];
   /** Opens the book's detail panel. */
   onDetails: (book: Book) => void;
+  /** Opens the book in the reader. */
+  onRead: (book: Book) => void;
 }
 
 const GAP = 3;
@@ -35,7 +37,7 @@ const mod = (a: number, m: number) => ((a % m) + m) % m;
  * writes transforms straight to the DOM; React only re-renders when the focused
  * book changes. Only books near the viewport are mounted.
  */
-export function Shelf3D({ index, id, name, books, onDetails }: Props) {
+export function Shelf3D({ index, id, name, books, onDetails, onRead }: Props) {
   const stageRef = useRef<HTMLDivElement>(null);
   const booksRef = useRef<HTMLDivElement>(null);
   const cursorRef = useRef<HTMLDivElement>(null);
@@ -394,9 +396,9 @@ export function Shelf3D({ index, id, name, books, onDetails }: Props) {
             <button type="button" className="btn" onClick={() => onDetails(current)}>
               Details
             </button>
-            <a className="btn btn--primary" href={api.fileUrl(current.id)} target="_blank" rel="noreferrer">
+            <button type="button" className="btn btn--primary" onClick={() => onRead(current)}>
               Read
-            </a>
+            </button>
             <button type="button" className="round-btn" onClick={() => goTo(target.current + 1)} disabled={!loop && focus >= n - 1} aria-label="Next book">
               <Arrow dir="right" />
             </button>
