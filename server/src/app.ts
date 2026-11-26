@@ -173,6 +173,37 @@ export async function buildApp(
     return { ok: true };
   });
 
+  app.put<{ Body: { ids: string[] } }>(
+    "/api/shelves/order",
+    { schema: { body: { type: "object", required: ["ids"], properties: { ids: { type: "array", items: { type: "string" } } } } } },
+    async (req) => {
+      library.reorderShelves(req.body.ids);
+      return { ok: true };
+    },
+  );
+
+  // Move (or with no "from", add) books to a shelf. A null "to" takes them off "from".
+  app.post<{ Body: { bookIds: string[]; to: string | null; from?: string | null } }>(
+    "/api/books/move",
+    {
+      schema: {
+        body: {
+          type: "object",
+          required: ["bookIds", "to"],
+          properties: {
+            bookIds: { type: "array", items: { type: "string" }, minItems: 1 },
+            to: { type: ["string", "null"] },
+            from: { type: ["string", "null"] },
+          },
+        },
+      },
+    },
+    async (req) => {
+      library.moveBooks(req.body.bookIds, req.body.to, req.body.from ?? null);
+      return { ok: true };
+    },
+  );
+
   app.delete<{ Params: { id: string } }>("/api/shelves/:id", async (req, reply) => {
     library.deleteShelf(req.params.id);
     reply.status(204).send();
