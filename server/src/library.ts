@@ -136,6 +136,8 @@ export interface LibraryOptions {
   ai?: AiOptions;
   /** Put books on existing shelves automatically after the AI pass. */
   aiAutoShelve?: boolean;
+  /** Run the background pass after uploads (off in tests, which call the steps directly). */
+  background?: boolean;
 }
 
 /** Pause between books in the background queue, to be polite to the free APIs. */
@@ -413,7 +415,7 @@ export class Library {
 
   /** Queues a book for the background pass: AI clean-up, online lookup, then shelf sorting. */
   enqueue(id: string): void {
-    if ((!this.opts.online && !aiEnabled(this.opts.ai)) || this.closed || this.queued.has(id)) return;
+    if (this.opts.background === false || (!this.opts.online && !aiEnabled(this.opts.ai)) || this.closed || this.queued.has(id)) return;
     this.queued.add(id);
     this.queue.push(id);
     this.draining ??= this.drain().finally(() => (this.draining = null));

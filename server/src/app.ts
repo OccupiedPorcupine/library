@@ -10,7 +10,7 @@ import { createStorage, type Storage } from "./storage/index.js";
 
 export async function buildApp(
   config: Config,
-  opts: { storage?: Storage; logger?: boolean; fetch?: typeof fetch } = {},
+  opts: { storage?: Storage; logger?: boolean; fetch?: typeof fetch; background?: boolean } = {},
 ) {
   const app = Fastify({ logger: opts.logger ?? true });
   const storage = opts.storage ?? createStorage(config.storage);
@@ -21,6 +21,7 @@ export async function buildApp(
     onlineOptions: { googleBooksKey: config.googleBooksApiKey, fetch: opts.fetch },
     ai: { ...config.openai, fetch: opts.fetch },
     aiAutoShelve: config.aiAutoShelve,
+    background: opts.background,
     log: (msg, err) => app.log.warn({ err }, msg),
   });
   app.addHook("onClose", async () => {
