@@ -278,7 +278,13 @@ export function App() {
       </main>
 
       {detailId && !reading && (
-        <BookPanel bookId={detailId} onClose={closeDetails} onChanged={load} onRead={(at) => openReader(detailId, at)} />
+        <BookPanel
+          bookId={detailId}
+          onClose={closeDetails}
+          onChanged={load}
+          onRead={(at) => openReader(detailId, at)}
+          shelves={data?.shelves.map((s) => ({ id: s.id, name: s.name })) ?? []}
+        />
       )}
       {reading && <Reader key={`${reading.id}:${reading.at}`} bookId={reading.id} at={reading.at} onClose={closeReader} onProgress={load} />}
 

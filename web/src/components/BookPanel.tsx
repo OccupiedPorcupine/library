@@ -10,6 +10,8 @@ interface Props {
   onChanged: () => void;
   /** Opens the in-app reader, optionally at a contents entry (href or PDF page). */
   onRead: (at?: string) => void;
+  /** All shelves, for the "On shelves" picker. */
+  shelves: { id: string; name: string }[];
 }
 
 const SOURCE_NAMES: Record<FieldSource, string> = {
@@ -44,7 +46,7 @@ const POLL_TRIES = 8;
  * A porcelain side panel with everything known about a book: cover, details,
  * description, subjects and table of contents, with an edit mode for fixing anything.
  */
-export function BookPanel({ bookId, onClose, onChanged, onRead }: Props) {
+export function BookPanel({ bookId, onClose, onChanged, onRead, shelves }: Props) {
   const [book, setBook] = useState<BookDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
@@ -162,6 +164,18 @@ export function BookPanel({ bookId, onClose, onChanged, onRead }: Props) {
             onEdit={() => setEditing(true)}
             onRefresh={refresh}
             onRead={onRead}
+            shelves={shelves}
+            onShelves={async (ids) => {
+              const prev = book.shelfIds;
+              setBook({ ...book, shelfIds: ids });
+              try {
+                await api.setBookShelves(book.id, ids);
+                onChanged();
+              } catch (e) {
+                setBook({ ...book, shelfIds: prev });
+                setNote((e as Error).message);
+              }
+            }}
           />
         )}
         {book && editing && (
@@ -194,12 +208,16 @@ function View({
   onEdit,
   onRefresh,
   onRead,
+  shelves,
+  onShelves,
 }: {
   book: BookDetail;
   busy: string;
   onEdit: () => void;
   onRefresh: () => void;
   onRead: (at?: string) => void;
+  shelves: { id: string; name: string }[];
+  onShelves: (ids: string[]) => void;
 }) {
   const [more, setMore] = useState(false);
   const pct = Math.round((book.finishedAt ? 1 : book.progress) * 100);
@@ -298,6 +316,33 @@ function View({
           ))}
         </dl>
       </section>
+
+      {shelves.length > 0 && (
+        <section className="panel__section">
+          <h3 className="panel__h">On shelves</h3>
+          <div className="pills" role="group" aria-label="Shelves this book is on">
+            {shelves.map((s) => {
+              const on = book.shelfIds.includes(s.id);
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  className={`pill pill--toggle${on ? " is-on" : ""}`}
+                  aria-pressed={on}
+                  onClick={() => onShelves(on ? book.shelfIds.filter((x) => x !== s.id) : [...book.shelfIds, s.id])}
+                >
+                  {on && (
+                    <svg width="10" height="10" viewBox="0 0 12 12" aria-hidden>
+                      <path d="m2 6.5 2.5 2.5L10 3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  )}
+                  {s.name}
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {book.subjects.length > 0 && (
         <section className="panel__section">
