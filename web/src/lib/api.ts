@@ -103,5 +103,12 @@ export const api = {
     return fetch(`/api/books/${id}/cover`, { method: "PUT", body: form }).then((r) => json<BookDetail>(r));
   },
 
+  setProgress: (id: string, progress: number) =>
+    fetch(`/api/books/${id}/progress`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ progress }),
+    }).then((r) => json<Book>(r)),
+
   fileUrl: (id: string) => `/api/books/${id}/file`,
 };
