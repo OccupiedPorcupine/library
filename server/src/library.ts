@@ -774,9 +774,33 @@ export class Library {
     return fixed;
   }
 
+  /** Books without a page count (most EPUBs and comics before #44): read it from the file. */
+  async fillPageCounts(): Promise<number> {
+    let filled = 0;
+    const rows = this.db
+      .prepare("SELECT * FROM books WHERE page_count IS NULL AND format IN ('epub', 'cbz', 'pdf')")
+      .all() as BookRow[];
+    for (const b of rows) {
+      try {
+        const sources = JSON.parse(b.meta_sources || "{}") as Sources;
+        if (sources.pageCount === "user") continue;
+        const meta = await extractMeta(b.format, await readAll((await this.storage.get(b.file_key)).stream));
+        if (!meta.pageCount) continue;
+        sources.pageCount = meta.pageCountEstimated ? "estimate" : "file";
+        this.db.prepare("UPDATE books SET page_count = ?, meta_sources = ? WHERE id = ?").run(meta.pageCount, JSON.stringify(sources), b.id);
+        filled++;
+      } catch (e) {
+        this.opts.log?.(`page count for ${b.id}`, e);
+      }
+    }
+    if (filled) this.opts.log?.(`filled in page counts for ${filled} book(s)`);
+    return filled;
+  }
+
   /** On startup: pick up every book that still needs an online lookup or AI pass. */
   async resumeQueue(): Promise<void> {
     await this.repackStored().catch((e) => this.opts.log?.("repacking stored books", e));
+    await this.fillPageCounts().catch((e) => this.opts.log?.("filling page counts", e));
     this.cleanJunk();
     void this.recolorSpines().catch((e) => this.opts.log?.("recolouring spines", e));
     const ai = aiEnabled(this.opts.ai);
