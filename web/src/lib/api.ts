@@ -11,6 +11,41 @@ export interface Book {
   addedAt: string;
 }
 
+export interface TocEntry {
+  title: string;
+  level: number;
+  href?: string;
+  page?: number;
+}
+
+export type FieldSource = "filename" | "file" | "openlibrary" | "googlebooks" | "user";
+
+export interface BookDetail extends Book {
+  subtitle: string | null;
+  series: string | null;
+  seriesIndex: number | null;
+  description: string | null;
+  publisher: string | null;
+  published: string | null;
+  pageCount: number | null;
+  language: string | null;
+  isbn10: string | null;
+  isbn13: string | null;
+  subjects: string[];
+  toc: TocEntry[];
+  fileName: string;
+  sources: Partial<Record<string, FieldSource>>;
+  metaCheckedAt: string | null;
+  shelfIds: string[];
+}
+
+export type MetadataPatch = Partial<
+  Pick<
+    BookDetail,
+    "title" | "subtitle" | "author" | "series" | "seriesIndex" | "description" | "publisher" | "published" | "pageCount" | "language" | "isbn13" | "subjects"
+  >
+>;
+
 export interface Shelf {
   id: string;
   name: string;
@@ -49,6 +84,23 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ name }),
     }).then((r) => json<{ id: string }>(r)),
+
+  book: (id: string) => fetch(`/api/books/${id}`).then((r) => json<BookDetail>(r)),
+
+  updateMetadata: (id: string, patch: MetadataPatch) =>
+    fetch(`/api/books/${id}/metadata`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(patch),
+    }).then((r) => json<BookDetail>(r)),
+
+  refreshMetadata: (id: string) => fetch(`/api/books/${id}/metadata/refresh`, { method: "POST" }).then((r) => json<BookDetail>(r)),
+
+  setCover: (id: string, file: File) => {
+    const form = new FormData();
+    form.append("cover", file, file.name);
+    return fetch(`/api/books/${id}/cover`, { method: "PUT", body: form }).then((r) => json<BookDetail>(r));
+  },
 
   fileUrl: (id: string) => `/api/books/${id}/file`,
 };
