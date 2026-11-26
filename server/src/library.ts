@@ -6,6 +6,7 @@ import { CONTENT_TYPES, detectFormat, extractMeta, isSupported, titleFromFileNam
 import { imageSize, sniffImage } from "./formats/images.js";
 import { type AiOptions, aiEnabled, aiMetadata, aiSortShelves } from "./metadata/ai.js";
 import { type BookMeta, fromFile, isJunkMeta, META_FIELDS, mergeAi, mergeOnline, type MetaField, type Sources, wantsOnlineCover } from "./metadata/enrich.js";
+import { spineColorFromCover } from "./metadata/color.js";
 import { parseIsbn } from "./metadata/isbn.js";
 import { googleBooks, type LookupQuery, openLibrary, type OnlineMeta, type OnlineOptions } from "./metadata/online.js";
 import type { Storage } from "./storage/index.js";
@@ -214,7 +215,9 @@ export class Library {
       await this.storage.put(coverKey, meta.cover.data, meta.cover.contentType);
     }
     const { meta: m, sources } = fromFile(meta, titleFromFileName(fileName));
-    const spine = SPINE_COLORS[crypto.createHash("md5").update(m.title).digest()[0]! % SPINE_COLORS.length]!;
+    const spine =
+      (meta.cover && (await spineColorFromCover(meta.cover.data))) ||
+      SPINE_COLORS[crypto.createHash("md5").update(m.title).digest()[0]! % SPINE_COLORS.length]!;
     this.db
       .prepare(
         `INSERT INTO books (id, title, author, format, file_key, file_name, file_size, file_hash, cover_key, spine_color)
@@ -288,9 +291,32 @@ export class Library {
     const key = `covers/${id}.${type.ext}`;
     await this.storage.put(key, data, type.contentType);
     if (old && old !== key) await this.storage.delete(old).catch(() => {});
+    const spine = await spineColorFromCover(data);
     this.db
-      .prepare("UPDATE books SET cover_key = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?")
-      .run(key, id);
+      .prepare(
+        "UPDATE books SET cover_key = ?, spine_color = COALESCE(?, spine_color), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?",
+      )
+      .run(key, spine, id);
+  }
+
+  /** Books from before spines matched their covers: recolour them once, in the background. */
+  async recolorSpines(): Promise<number> {
+    const rows = this.db
+      .prepare(`SELECT id, cover_key FROM books WHERE cover_key IS NOT NULL AND spine_color IN (${SPINE_COLORS.map(() => "?").join(",")})`)
+      .all(...SPINE_COLORS) as { id: string; cover_key: string }[];
+    let n = 0;
+    for (const r of rows) {
+      if (this.closed) break;
+      const data = await this.storage
+        .get(r.cover_key)
+        .then((o) => readAll(o.stream))
+        .catch(() => null);
+      const spine = data && (await spineColorFromCover(data));
+      if (!spine) continue;
+      this.db.prepare("UPDATE books SET spine_color = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?").run(spine, r.id);
+      n++;
+    }
+    return n;
   }
 
   /** Manual edits. Edited fields are marked as yours, so online refreshes leave them alone. */
@@ -603,6 +629,7 @@ export class Library {
   /** On startup: pick up every book that still needs an online lookup or AI pass. */
   resumeQueue(): void {
     this.cleanJunk();
+    void this.recolorSpines().catch((e) => this.opts.log?.("recolouring spines", e));
     const ai = aiEnabled(this.opts.ai);
     const ids = this.db
       .prepare(
