@@ -18,7 +18,9 @@ jobs:
       - run: npm test
       - run: npm run build
       - name: Bundle budget (docs/performance.md)
+        # Only the JS the shelf page loads up front counts; reader engines are lazy chunks.
         run: |
-          size=$(cat web/dist/assets/*.js | gzip -c | wc -c)
+          files=$(grep -oE 'assets/[^"]+\.js' web/dist/index.html | sort -u | sed 's|^|web/dist/|')
+          size=$(cat $files | gzip -c | wc -c)
           echo "Initial JS: $((size / 1024)) KB gzipped (budget 120 KB)"
           test "$size" -lt 122880
