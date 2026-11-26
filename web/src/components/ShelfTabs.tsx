@@ -3,13 +3,14 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 interface Props {
   shelves: { id: string; name: string; count: number }[];
   onCreate: (name: string) => void;
+  onEdit: () => void;
 }
 
 /**
  * A pill of shelf names that follows you down the page. A sliding indicator marks
  * the shelf in view; clicking a name glides to that shelf.
  */
-export function ShelfTabs({ shelves, onCreate }: Props) {
+export function ShelfTabs({ shelves, onCreate, onEdit }: Props) {
   const [active, setActive] = useState<string | undefined>(shelves[0]?.id);
   const [adding, setAdding] = useState(false);
   const barRef = useRef<HTMLDivElement>(null);
@@ -84,6 +85,11 @@ export function ShelfTabs({ shelves, onCreate }: Props) {
             +
           </button>
         )}
+        <button type="button" className="tabs__tab tabs__add" onClick={onEdit} aria-label="Edit shelves" title="Edit shelves">
+          <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden>
+            <path d="M9.5 2.5l2 2L5 11H3V9l6.5-6.5Z" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+          </svg>
+        </button>
       </div>
     </nav>
   );

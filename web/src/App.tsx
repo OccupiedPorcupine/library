@@ -4,6 +4,7 @@ import { READABLE, Reader } from "./components/Reader";
 import { SettingsMenu } from "./components/SettingsMenu";
 import { Shelf3D } from "./components/Shelf3D";
 import { ShelfSuggestions, Spark } from "./components/ShelfSuggestions";
+import { ShelfEditor } from "./components/ShelfEditor";
 import { ShelfTabs } from "./components/ShelfTabs";
 import { api, type Book, type LibraryOverview } from "./lib/api";
 
@@ -16,6 +17,7 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [toast, setToast] = useState<string | null>(null);
+  const [editingShelves, setEditingShelves] = useState(false);
   const [dragging, setDragging] = useState(false);
   const deferredQuery = useDeferredValue(query);
   const [detailId, setDetailId] = useState<string | null>(bookFromHash);
@@ -258,6 +260,7 @@ export function App() {
                   .then(load)
                   .catch((e: Error) => setToast(e.message))
               }
+              onEdit={() => setEditingShelves(true)}
             />
             <div className="shelves">
               {shelves.map((s, i) => (
@@ -288,6 +291,14 @@ export function App() {
       )}
       {reading && <Reader key={`${reading.id}:${reading.at}`} bookId={reading.id} at={reading.at} onClose={closeReader} onProgress={load} />}
 
+      {editingShelves && data && (
+        <ShelfEditor
+          shelves={data.shelves.map((s) => ({ id: s.id, name: s.name, count: s.books.length }))}
+          onClose={() => setEditingShelves(false)}
+          onChanged={load}
+          onToast={setToast}
+        />
+      )}
       {dragging && (
         <div className="dropzone" aria-hidden>
           <div className="dropzone__card">Drop to add to your library, or onto a shelf to put it there</div>
