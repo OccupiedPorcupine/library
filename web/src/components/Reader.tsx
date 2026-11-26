@@ -218,7 +218,8 @@ function FoliateViewer({ book, start, goRef, onReport, onError }: EngineProps) {
       // Fixed-layout (pre-paginated) books get a renderer without setStyles.
       view.renderer.setStyles?.(bookCss(isDark()));
       goRef.current = (target) => void view.goTo(target);
-      if (start) await view.init({ lastLocation: start });
+      // A saved spot can stop fitting (e.g. a book repacked from comic to EPUB): start over then.
+      if (start) await view.init({ lastLocation: start }).catch(() => view.init({ showTextStart: true }));
       else await view.init({ showTextStart: true });
     })().catch((e: Error) => !cancelled && onError(e.message));
 
