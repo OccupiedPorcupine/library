@@ -323,6 +323,8 @@ input {
 
 .shelf {
   position: relative;
+  /* Land below the sticky tabs when jumping to a shelf. */
+  scroll-margin-top: 128px;
 }
 .shelf__head {
   display: flex;
