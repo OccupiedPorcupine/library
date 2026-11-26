@@ -134,3 +134,63 @@ test("without a key the AI steps are off and sorting explains why", async () => 
     await app.close();
   }
 });
+
+test("chat answers from the catalog and only changes things once an action is confirmed", async () => {
+  let sent: { system: string; messages: { role: string; content: string }[] } | null = null;
+  const f = (async (_input: string | URL | Request, init?: RequestInit) => {
+    const body = JSON.parse(String(init!.body)) as { messages: { role: string; content: string }[] };
+    sent = { system: body.messages[0]!.content, messages: body.messages.slice(1) };
+    const content = {
+      reply: "Dune is ready to move to Sci-fi.",
+      actions: [
+        { type: "move_books", bookIds: ["b1"], shelfId: "s2", fromShelfId: "s1", name: null, summary: "Move Dune to Sci-fi" },
+        { type: "create_shelf", bookIds: ["b2"], shelfId: null, fromShelfId: null, name: "Favourites", summary: "New shelf Favourites" },
+        { type: "move_books", bookIds: ["b99"], shelfId: "s2", fromShelfId: null, name: null, summary: "Unknown book: dropped" },
+      ],
+    };
+    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(content) } }] }));
+  }) as typeof fetch;
+  const { app, library } = await buildApp(aiConfig(), { logger: false, fetch: f, background: false });
+  try {
+    const { book: dune } = await library.addBook("dune.epub", await epub("Dune", "Frank Herbert"));
+    const { book: emma } = await library.addBook("emma.epub", await epub("Emma", "Jane Austen"));
+    const classics = library.createShelf("Classics");
+    const scifi = library.createShelf("Sci-fi");
+    library.moveBooks([dune.id], classics.id, null);
+
+    const res = await app.inject({ method: "POST", url: "/api/chat", payload: { messages: [{ role: "user", content: "Move Dune to Sci-fi" }] } });
+    assert.equal(res.statusCode, 200);
+    const { reply, actions } = res.json() as { reply: string; actions: { type: string; bookIds: string[]; shelfId: string | null }[] };
+    assert.match(reply, /Dune/);
+    assert.equal(actions.length, 2, "action with an unknown book dropped");
+    assert.deepEqual(actions[0]!.bookIds, [dune.id]);
+    assert.equal(actions[0]!.shelfId, scifi.id);
+    assert.match(sent!.system, /b1 \| Dune \| Frank Herbert .*shelves: s1/);
+    assert.equal(sent!.messages[0]!.content, "Move Dune to Sci-fi");
+
+    // Nothing moved until it's confirmed.
+    assert.deepEqual(library.getDetail(dune.id).shelfIds, [classics.id]);
+    const ok = await app.inject({ method: "POST", url: "/api/chat/apply", payload: { action: actions[0] } });
+    assert.equal(ok.statusCode, 200);
+    assert.deepEqual(library.getDetail(dune.id).shelfIds, [scifi.id]);
+    await app.inject({ method: "POST", url: "/api/chat/apply", payload: { action: actions[1] } });
+    const fav = library.overview().shelves.find((s) => s.name === "Favourites");
+    assert.deepEqual(fav?.books.map((b) => b.id), [emma.id]);
+
+    const bad = await app.inject({ method: "POST", url: "/api/chat/apply", payload: { action: { type: "delete_shelf", shelfId: "nope", bookIds: [] } } });
+    assert.equal(bad.statusCode, 400);
+  } finally {
+    await app.close();
+  }
+});
+
+test("chat explains how to turn it on without a key", async () => {
+  const { app } = await buildApp(testConfig(), { logger: false, background: false });
+  try {
+    const res = await app.inject({ method: "POST", url: "/api/chat", payload: { messages: [{ role: "user", content: "hi" }] } });
+    assert.equal(res.statusCode, 400);
+    assert.match(res.json().error, /API key/);
+  } finally {
+    await app.close();
+  }
+});
