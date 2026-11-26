@@ -12,7 +12,7 @@ declare module "foliate-js/view.js" {
   }
   export interface FoliateView extends HTMLElement {
     book: { toc?: FoliateTocItem[]; dir?: string };
-    renderer: HTMLElement & { setStyles(css: string): void; next(): Promise<void>; prev(): Promise<void> };
+    renderer: HTMLElement & { setStyles?(css: string): void; next(): Promise<void>; prev(): Promise<void> };
     lastLocation: FoliateLocation | null;
     open(file: File | Blob | string): Promise<void>;
     init(opts: { lastLocation?: string; showTextStart?: boolean }): Promise<void>;

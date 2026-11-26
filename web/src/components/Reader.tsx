@@ -215,14 +215,15 @@ function FoliateViewer({ book, start, goRef, onReport, onError }: EngineProps) {
       view.renderer.setAttribute("max-inline-size", "680px");
       view.renderer.setAttribute("margin", "56px");
       view.renderer.setAttribute("gap", "6%");
-      view.renderer.setStyles(bookCss(isDark()));
+      // Fixed-layout (pre-paginated) books get a renderer without setStyles.
+      view.renderer.setStyles?.(bookCss(isDark()));
       goRef.current = (target) => void view.goTo(target);
       if (start) await view.init({ lastLocation: start });
       else await view.init({ showTextStart: true });
     })().catch((e: Error) => !cancelled && onError(e.message));
 
     const theme = matchMedia("(prefers-color-scheme: dark)");
-    const retheme = () => viewRef.current?.renderer?.setStyles(bookCss(isDark()));
+    const retheme = () => viewRef.current?.renderer?.setStyles?.(bookCss(isDark()));
     theme.addEventListener("change", retheme);
     return () => {
       cancelled = true;
