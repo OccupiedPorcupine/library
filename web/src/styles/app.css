@@ -426,6 +426,7 @@ input {
   inset: 0 0 calc(var(--floor) - 16px);
   perspective: 2200px;
   perspective-origin: 50% 12%;
+  transition: perspective-origin 600ms cubic-bezier(0.22, 0.8, 0.2, 1);
   -webkit-box-reflect: below -16px linear-gradient(transparent 80%, var(--reflect));
 }
 
