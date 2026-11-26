@@ -2,6 +2,10 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProp
 import type { FoliateView } from "foliate-js/view.js";
 import { api, type BookDetail, type TocEntry } from "../lib/api";
 import { type PinchHandlers, watchPinch } from "../lib/pinch";
+import { useAnnotations, type Annotation, type AnnotationColor, type MarksBridge, type ScreenRect, type Selected } from "../lib/annotations";
+import { attachFoliateMarks, onPage, pageStart } from "../lib/foliateMarks";
+import { drawPdfMarks, textLayer, watchPdfSelection } from "../lib/pdfMarks";
+import { BookmarkIcon, MarksPanel, NoteEditor, NotesIcon, SelectionMenu } from "./Marks";
 
 /** Formats the in-app reader can open. Anything else opens as a raw file. */
 export const READABLE = new Set(["epub", "mobi", "azw3", "fb2", "cbz", "pdf"]);
@@ -66,6 +70,85 @@ export function Reader({ bookId, at, onClose, onProgress }: Props) {
   const goRef = useRef<(target: string) => void>(() => {});
   const saveTimer = useRef(0);
   const rootRef = useRef<HTMLDivElement>(null);
+  const isPdf = book?.format === "pdf";
+
+  // Highlights, notes and bookmarks (#48). The engines draw highlights and report selections
+  // through `marksRef`; everything else (toolbar, note editor, list) lives here.
+  const marks = useAnnotations(bookId);
+  const [here, setHere] = useState("");
+  const [menu, setMenu] = useState<{ at: ScreenRect; sel: Selected | null; current: Annotation | null } | null>(null);
+  const [noteFor, setNoteFor] = useState<{ sel: Selected | null; current: Annotation | null } | null>(null);
+  const [marksOpen, setMarksOpen] = useState(false);
+  const [bookmarkHere, setBookmarkHere] = useState<Annotation | null>(null);
+  const clearSel = useRef<() => void>(() => {});
+  const noteOpen = useRef(false);
+  noteOpen.current = !!noteFor;
+  const marksRef = useRef<MarksBridge>({ list: [], select: () => {}, dismiss: () => {}, pick: () => {} });
+  marksRef.current = {
+    list: marks.list,
+    // A selection going away closes its own toolbar, never one opened for a tapped highlight.
+    select: (sel) => {
+      if (noteOpen.current) return;
+      setMenu((m) => (sel ? { at: sel.at, sel, current: null } : m?.current ? m : null));
+    },
+    dismiss: () => setMenu(null),
+    pick: (a, at) => !noteOpen.current && setMenu({ at, sel: null, current: a }),
+  };
+  // The chapter for the list, without the page number PDFs already show.
+  const chapter = () => (isPdf ? where.label?.replace(/ · p\. \d+$/, "").replace(/^Page \d+ of \d+$/, "") || null : where.label ?? null);
+  const highlight = (sel: Selected, color: AnnotationColor, note?: string) => {
+    const { at: _at, ...rest } = sel;
+    clearSel.current();
+    // The same passage again (ebooks) recolours the highlight that's there instead of stacking another.
+    const same = !isPdf && marks.list.find((a) => a.kind === "highlight" && a.locator === rest.locator);
+    if (same) return marks.update(same.id, note ? { color, note } : { color });
+    void marks.create({ ...rest, kind: "highlight", color, note: note || null, label: rest.label ?? chapter() });
+  };
+  const pickColor = (c: AnnotationColor) => {
+    if (menu?.current) marks.update(menu.current.id, { color: c });
+    else if (menu?.sel) highlight(menu.sel, c);
+    setMenu(null);
+  };
+  const saveNote = (note: string) => {
+    if (noteFor?.current) marks.update(noteFor.current.id, { note: note || null });
+    else if (noteFor?.sel && note) highlight(noteFor.sel, "yellow", note);
+    setNoteFor(null);
+  };
+  const copy = () => {
+    const text = menu?.current?.text ?? menu?.sel?.text;
+    if (text) void navigator.clipboard?.writeText(text).catch(() => {});
+    if (menu?.sel) clearSel.current();
+    setMenu(null);
+  };
+  const goToMark = (a: Annotation) => {
+    goRef.current(a.page != null && isPdf ? String(a.page) : a.locator);
+    setMarksOpen(false);
+  };
+
+  // Is the page on screen bookmarked?
+  const bookmarks = marks.list.filter((a) => a.kind === "bookmark");
+  useEffect(() => {
+    let live = true;
+    if (!here || !book) return setBookmarkHere(null);
+    if (isPdf) return setBookmarkHere(bookmarks.find((b) => b.locator === `page:${here}`) ?? null);
+    void (async () => {
+      for (const b of bookmarks) if (await onPage(b.locator, here)) return live && setBookmarkHere(b);
+      if (live) setBookmarkHere(null);
+    })();
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [here, marks.list, book, isPdf]);
+  const toggleBookmark = async () => {
+    if (!here) return;
+    if (bookmarkHere) return marks.remove(bookmarkHere.id);
+    await marks.create(
+      isPdf
+        ? { kind: "bookmark", locator: `page:${here}`, page: Number(here), fraction: where.fraction, label: chapter() }
+        : { kind: "bookmark", locator: await pageStart(here), fraction: where.fraction, label: chapter() },
+    );
+  };
 
   // Zoom: pinch (touch or trackpad) or the A-/A+ buttons. Reflowable books change text size;
   // PDFs zoom the page. While pinching, `preview` shows where it will land.
@@ -126,6 +209,7 @@ export function Reader({ bookId, at, onClose, onProgress }: Props) {
   const report = useCallback(
     (fraction: number, resumeAt: string, label?: string) => {
       setWhere({ fraction, label });
+      setHere(resumeAt);
       store.set(bookId, resumeAt);
       clearTimeout(saveTimer.current);
       saveTimer.current = window.setTimeout(() => {
@@ -141,7 +225,11 @@ export function Reader({ bookId, at, onClose, onProgress }: Props) {
 
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
-      if (e.key === "Escape") (tocOpen ? setTocOpen(false) : onClose());
+      if (e.key !== "Escape") return;
+      if (menu) (setMenu(null), clearSel.current());
+      else if (marksOpen) setMarksOpen(false);
+      else if (tocOpen) setTocOpen(false);
+      else onClose();
     };
     document.addEventListener("keydown", key);
     const overflow = document.documentElement.style.overflow;
@@ -150,7 +238,7 @@ export function Reader({ bookId, at, onClose, onProgress }: Props) {
       document.removeEventListener("keydown", key);
       document.documentElement.style.overflow = overflow;
     };
-  }, [onClose, tocOpen]);
+  }, [onClose, tocOpen, marksOpen, menu]);
 
   const start = at ?? store.get(bookId);
   const pct = Math.round(where.fraction * 100);
@@ -189,8 +277,32 @@ export function Reader({ bookId, at, onClose, onProgress }: Props) {
             </button>
           </div>
         )}
+        {book && READABLE.has(book.format) && (
+          <>
+            <button
+              type="button"
+              className={`icon-btn reader__mark${bookmarkHere ? " is-on" : ""}`}
+              onClick={() => void toggleBookmark()}
+              aria-pressed={!!bookmarkHere}
+              aria-label={bookmarkHere ? "Remove bookmark" : "Bookmark this page"}
+              title={bookmarkHere ? "Remove bookmark" : "Bookmark this page"}
+            >
+              <BookmarkIcon filled={!!bookmarkHere} />
+            </button>
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={() => (setMarksOpen((o) => !o), setTocOpen(false))}
+              aria-expanded={marksOpen}
+              aria-label="Highlights, notes and bookmarks"
+              title="Highlights, notes and bookmarks"
+            >
+              <NotesIcon />
+            </button>
+          </>
+        )}
         {book && book.toc.length > 0 && (
-          <button type="button" className="btn reader__toc-btn" onClick={() => setTocOpen((o) => !o)} aria-expanded={tocOpen}>
+          <button type="button" className="btn reader__toc-btn" onClick={() => (setTocOpen((o) => !o), setMarksOpen(false))} aria-expanded={tocOpen}>
             Contents
           </button>
         )}
@@ -199,10 +311,16 @@ export function Reader({ bookId, at, onClose, onProgress }: Props) {
       <div className="reader__stage">
         {error && <p className="notice">Couldn’t open this book: {error}</p>}
         {book && book.format === "pdf" && (
-          <PdfView book={book} start={start} goRef={goRef} onReport={report} onError={setError} zoom={zoom} preview={preview} pinch={pinch} />
+          <PdfView book={book} start={start} goRef={goRef} onReport={report} onError={setError} zoom={zoom} preview={preview} pinch={pinch} marks={marksRef} markList={marks.list} clearSel={clearSel} />
         )}
         {book && book.format !== "pdf" && READABLE.has(book.format) && (
-          <FoliateViewer book={book} start={start} goRef={goRef} onReport={report} onError={setError} zoom={zoom} preview={preview} pinch={pinch} />
+          <FoliateViewer book={book} start={start} goRef={goRef} onReport={report} onError={setError} zoom={zoom} preview={preview} pinch={pinch} marks={marksRef} markList={marks.list} clearSel={clearSel} />
+        )}
+        {bookmarkHere && <span className="reader__ribbon" aria-hidden />}
+        {marks.error && (
+          <div className="reader__toast" role="status" onClick={marks.clearError}>
+            Couldn’t save that: {marks.error}
+          </div>
         )}
         {(preview !== null || zoomNote) && (
           <div className="reader__zoom-note" aria-live="polite">
@@ -223,6 +341,29 @@ export function Reader({ bookId, at, onClose, onProgress }: Props) {
         <span className="meter meter--wide" style={{ "--p": where.fraction } as CSSProperties} />
         <span>{pct}%</span>
       </footer>
+
+      {menu && (
+        <SelectionMenu
+          at={menu.at}
+          current={menu.current}
+          onColor={pickColor}
+          onNote={() => (setNoteFor({ sel: menu.sel, current: menu.current }), setMenu(null))}
+          onCopy={copy}
+          onDelete={menu.current ? () => (marks.remove(menu.current!.id), setMenu(null)) : undefined}
+        />
+      )}
+      {noteFor && (
+        <NoteEditor
+          quote={noteFor.current?.text ?? noteFor.sel?.text ?? null}
+          color={noteFor.current?.color ?? "yellow"}
+          initial={noteFor.current?.note ?? ""}
+          onSave={saveNote}
+          onCancel={() => setNoteFor(null)}
+        />
+      )}
+      {book && marksOpen && (
+        <MarksPanel list={marks.list} onGo={goToMark} onEdit={(a) => (setNoteFor({ sel: null, current: a }), setMarksOpen(false))} onDelete={(a) => marks.remove(a.id)} />
+      )}
 
       {book && tocOpen && (
         <div className="reader__toc" role="dialog" aria-label="Contents">
@@ -263,6 +404,10 @@ interface EngineProps {
   preview: number | null;
   /** Pinch handling for content the reader's own listeners can't see (the book's frames). */
   pinch: () => PinchHandlers;
+  /** Highlights to draw, and where to report selections and taps on highlights (#48). */
+  marks: React.MutableRefObject<MarksBridge>;
+  markList: Annotation[];
+  clearSel: React.MutableRefObject<() => void>;
 }
 
 // ---------- foliate-js: EPUB, MOBI/AZW3, FB2, CBZ ----------
@@ -287,9 +432,11 @@ function bookCss(dark: boolean, size = 1) {
 
 const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-function FoliateViewer({ book, start, goRef, onReport, onError, zoom, pinch }: EngineProps) {
+function FoliateViewer({ book, start, goRef, onReport, onError, zoom, pinch, marks, markList, clearSel }: EngineProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<FoliateView | null>(null);
+  const marksLayer = useRef<ReturnType<typeof attachFoliateMarks> | null>(null);
+  useEffect(() => marksLayer.current?.sync(), [markList]);
   // Which way the last page turn went ("left"/"right" on screen) and when, so a turn that
   // crosses into another chapter can slide in from the same side.
   const turnRef = useRef<{ side: -1 | 1; at: number } | null>(null);
@@ -341,6 +488,8 @@ function FoliateViewer({ book, start, goRef, onReport, onError, zoom, pinch }: E
       view.className = "reader__foliate";
       host.append(view);
       viewRef.current = view;
+      marksLayer.current = attachFoliateMarks(view, () => marks.current, isDark);
+      clearSel.current = () => marksLayer.current?.clearSelection();
       view.addEventListener("relocate", (e) => {
         const loc = (e as CustomEvent<{ fraction: number; cfi: string; tocItem?: { label: string }; section?: { current: number } }>).detail;
         onReport(loc.fraction ?? 0, loc.cfi, loc.tocItem?.label?.trim());
@@ -385,7 +534,10 @@ function FoliateViewer({ book, start, goRef, onReport, onError, zoom, pinch }: E
     })().catch((e: Error) => !cancelled && onError(e.message));
 
     const theme = matchMedia("(prefers-color-scheme: dark)");
-    const retheme = () => viewRef.current?.renderer?.setStyles?.(bookCss(isDark(), zoomRef.current));
+    const retheme = () => {
+      viewRef.current?.renderer?.setStyles?.(bookCss(isDark(), zoomRef.current));
+      marksLayer.current?.redrawAll();
+    };
     theme.addEventListener("change", retheme);
     return () => {
       cancelled = true;
@@ -395,6 +547,7 @@ function FoliateViewer({ book, start, goRef, onReport, onError, zoom, pinch }: E
       viewRef.current?.close();
       viewRef.current?.remove();
       viewRef.current = null;
+      marksLayer.current = null;
     };
     // Open once per book; later jumps go through goRef.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -423,7 +576,7 @@ function FoliateViewer({ book, start, goRef, onReport, onError, zoom, pinch }: E
 
 type PdfDoc = import("pdfjs-dist").PDFDocumentProxy;
 
-function PdfView({ book, start, goRef, onReport, onError, zoom, preview }: EngineProps) {
+function PdfView({ book, start, goRef, onReport, onError, zoom, preview, marks, markList, clearSel }: EngineProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [doc, setDoc] = useState<PdfDoc | null>(null);
   const [ratio, setRatio] = useState(1.414);
@@ -496,7 +649,8 @@ function PdfView({ book, start, goRef, onReport, onError, zoom, preview }: Engin
           const n = Number(slot.dataset.page);
           if (e.isIntersecting && !map.has(n)) {
             let task: { cancel(): void } | null = null;
-            map.set(n, { cancel: () => task?.cancel() });
+            let text: { cancel(): void } | null = null;
+            map.set(n, { cancel: () => (task?.cancel(), text?.cancel()) });
             void doc.getPage(n).then((page) => {
               if (!map.has(n)) return;
               const dpr = Math.min(2, devicePixelRatio || 1);
@@ -507,7 +661,17 @@ function PdfView({ book, start, goRef, onReport, onError, zoom, preview }: Engin
               slot.style.aspectRatio = `${vp.width} / ${vp.height}`;
               const t = page.render({ canvas, canvasContext: canvas.getContext("2d")!, viewport: vp });
               task = t;
-              t.promise.then(() => slot.replaceChildren(canvas)).catch(() => {});
+              t.promise
+                .then(async () => {
+                  slot.replaceChildren(canvas);
+                  // Highlights on top, then invisible text to select from (#48).
+                  drawPdfMarks(slot, marks.current.list, isDark());
+                  const layer = await textLayer(page, width / page.getViewport({ scale: 1 }).width);
+                  if (!map.has(n)) return layer.cancel();
+                  text = layer;
+                  slot.append(await layer.done);
+                })
+                .catch(() => {});
             });
           } else if (!e.isIntersecting && map.has(n)) {
             map.get(n)!.cancel();
@@ -525,6 +689,19 @@ function PdfView({ book, start, goRef, onReport, onError, zoom, preview }: Engin
       map.clear();
     };
   }, [doc, width]);
+
+  // Highlights: redraw when they change; report selections on the pages.
+  useEffect(() => {
+    scrollRef.current?.querySelectorAll<HTMLElement>(".pdf-page[data-page]").forEach((slot) => {
+      if (slot.firstChild) drawPdfMarks(slot, markList, isDark());
+    });
+  }, [markList]);
+  useEffect(() => {
+    const root = scrollRef.current;
+    if (!doc || !root) return;
+    clearSel.current = () => document.getSelection()?.removeAllRanges();
+    return watchPdfSelection(root, () => marks.current, () => doc.numPages);
+  }, [doc, marks, clearSel]);
 
   // Current page from scroll position.
   useEffect(() => {
