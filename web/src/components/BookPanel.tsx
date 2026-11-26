@@ -79,7 +79,7 @@ export function BookPanel({ bookId, onClose, onChanged }: Props) {
   // Modal behaviour: focus inside, Escape closes, page behind doesn't scroll.
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
-    closeRef.current?.focus();
+    panelRef.current?.focus();
     const key = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
       if (e.key === "Tab" && panelRef.current) {
@@ -138,7 +138,7 @@ export function BookPanel({ bookId, onClose, onChanged }: Props) {
   return (
     <div className="panel-root">
       <div className="panel-scrim" onClick={onClose} aria-hidden />
-      <div className="panel" ref={panelRef} role="dialog" aria-modal="true" aria-labelledby="panel-title">
+      <div className="panel" ref={panelRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="panel-title">
         <div className="panel__bar">
           <span className="panel__kicker">{editing ? "Edit details" : "About this book"}</span>
           <button type="button" className="icon-btn" ref={closeRef} onClick={onClose} aria-label="Close">

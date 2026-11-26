@@ -1029,6 +1029,9 @@ input {
     transform: translateX(24px);
   }
 }
+.panel:focus {
+  outline: none;
+}
 .panel__bar {
   display: flex;
   align-items: center;
