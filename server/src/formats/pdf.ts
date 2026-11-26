@@ -6,6 +6,7 @@ let pdfjs: Promise<PdfJs> | undefined;
 const loadPdfJs = () => (pdfjs ??= import("pdfjs-dist/legacy/build/pdf.mjs"));
 
 const MAX_TOC = 2000;
+const SAMPLE_CHARS = 8000;
 const COVER_WIDTH = 600;
 
 /** Placeholder values PDF tools write when nothing was set. */
@@ -56,20 +57,26 @@ export async function extractPdf(data: Buffer): Promise<ExtractedMeta> {
 
     out.toc = await outline(doc);
 
-    // ISBNs live on the copyright page, near the front (or sometimes the back cover).
+    // The opening pages hold the title page and copyright page: keep their text for the AI pass,
+    // and look there for an ISBN (or on the back cover).
+    const pages = [...new Set([1, 2, 3, 4, 5, 6, doc.numPages].filter((p) => p >= 1 && p <= doc.numPages))];
+    const texts: string[] = [];
+    for (const p of pages) {
+      const page = await doc.getPage(p);
+      const content = await page.getTextContent();
+      texts.push(content.items.map((i) => ("str" in i ? i.str : "")).join(" ").replace(/\s+/g, " ").trim());
+      page.cleanup();
+    }
     if (!out.isbn13) {
-      const pages = [...new Set([1, 2, 3, 4, 5, 6, doc.numPages].filter((p) => p >= 1 && p <= doc.numPages))];
-      for (const p of pages) {
-        const page = await doc.getPage(p);
-        const content = await page.getTextContent();
-        const hit = findIsbn(content.items.map((i) => ("str" in i ? i.str : "")).join(" "));
-        page.cleanup();
+      for (const t of texts) {
+        const hit = findIsbn(t);
         if (hit) {
           Object.assign(out, hit);
           break;
         }
       }
     }
+    out.sampleText = texts.filter(Boolean).join("\n\n").slice(0, SAMPLE_CHARS);
 
     out.cover = await renderCover(doc).catch(() => undefined);
     return out;

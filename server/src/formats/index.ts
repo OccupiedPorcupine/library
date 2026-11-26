@@ -27,6 +27,8 @@ export interface ExtractedMeta {
   isbn13?: string;
   subjects?: string[];
   toc?: TocEntry[];
+  /** Text from the opening pages (title and copyright pages), for the AI pass. */
+  sampleText?: string;
   cover?: { data: Buffer; ext: string; contentType: string };
 }
 
@@ -84,6 +86,9 @@ export async function extractMeta(format: Format, data: Buffer): Promise<Extract
         return await extractCbz(data);
       case "pdf":
         return await extractPdf(data);
+      case "txt":
+      case "md":
+        return { sampleText: data.subarray(0, 8000).toString("utf8") };
       default:
         return {};
     }

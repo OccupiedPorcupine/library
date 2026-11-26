@@ -191,7 +191,23 @@ export async function extractEpub(data: Buffer): Promise<ExtractedMeta> {
     // A broken TOC shouldn't lose the rest of the metadata.
   }
 
+  // Text of the first few spine documents: title page, copyright page, opening chapter.
+  let sampleText = "";
+  try {
+    const byId = new Map(items.map((i) => [i["@id"], i]));
+    for (const ref of arr(pkg?.spine?.itemref) as Record<string, string>[]) {
+      if (sampleText.length >= 8000) break;
+      const it = byId.get(ref["@idref"]);
+      if (!it?.["@href"] || !/html|xml/.test(it["@media-type"] ?? "")) continue;
+      const html = await zip.file(path.posix.join(opfDir, decodeURIComponent(it["@href"])))?.async("string");
+      if (html) sampleText += stripHtml(html.replace(/<(head|style|script)[\s\S]*?<\/\1>/gi, " ")) + "\n\n";
+    }
+  } catch {
+    // optional
+  }
+
   return {
+    sampleText: sampleText.trim().slice(0, 8000) || undefined,
     title: titleOf(main),
     subtitle: titleOf(sub),
     author: authors.join(", ") || undefined,
