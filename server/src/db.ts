@@ -49,6 +49,7 @@ export interface ShelfSuggestionRow {
   /** JSON string[] */
   book_ids: string;
   reason: string | null;
+  status: "open" | "accepted" | "dismissed";
   created_at: string;
 }
 
@@ -120,6 +121,8 @@ const MIGRATIONS: string[] = [
     name       TEXT NOT NULL,
     book_ids   TEXT NOT NULL DEFAULT '[]',
     reason     TEXT,
+    -- 'open' until accepted or dismissed; dismissed names are not suggested again
+    status     TEXT NOT NULL DEFAULT 'open',
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
   );
   `,
