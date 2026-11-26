@@ -516,6 +516,8 @@ input {
   letter-spacing: 0.08em;
 }
 .tape__title {
+  /* Sideways, so punctuation like ’ renders as in horizontal text, not as a vertical form. */
+  text-orientation: sideways;
   flex: 1 1 auto;
   min-height: 0;
   max-width: calc(var(--ws) - 10px);
@@ -528,6 +530,7 @@ input {
   text-align: start;
 }
 .tape__author {
+  text-orientation: sideways;
   flex: none;
   max-height: 32%;
   margin-bottom: 10px;
