@@ -1690,13 +1690,17 @@ button.toc__row:focus-visible .toc__go {
 .reader__scroll {
   position: absolute;
   inset: 0;
-  overflow-y: auto;
+  overflow: auto;
   overscroll-behavior: contain;
-  display: grid;
-  justify-content: center;
-  align-content: start;
-  gap: 18px;
   padding: 24px 16px 48px;
+}
+/* Zoomed-in pages can be wider than the screen: they scroll sideways and stay centred otherwise. */
+.pdf-pages {
+  display: grid;
+  gap: 18px;
+  width: max-content;
+  margin: 0 auto;
+  will-change: transform;
 }
 .pdf-page {
   background: #fff;
@@ -2292,4 +2296,42 @@ button.toc__row:focus-visible .toc__go {
   .chat__typing i {
     animation: none;
   }
+}
+
+/* ---------- Reader zoom ---------- */
+.reader__zoom {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+.reader__zoom + .reader__toc-btn {
+  margin-left: 6px;
+}
+.reader__a {
+  font-family: var(--font-serif);
+  font-size: 18px;
+  line-height: 1;
+}
+.reader__a--small {
+  font-size: 13px;
+}
+.reader__zoom .icon-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.reader__zoom-note {
+  position: absolute;
+  left: 50%;
+  top: 16px;
+  z-index: 5;
+  transform: translateX(-50%);
+  padding: 6px 12px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--hairline);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-2), var(--highlight-top);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
 }
