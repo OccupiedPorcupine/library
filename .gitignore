@@ -37,3 +37,11 @@ compose.override.yml
 # Logs and OS files
 *.log
 .DS_Store
+
+# Secrets: never commit tunnel or TLS credentials
+.env.*
+!.env.example
+*.pem
+*.key
+.cloudflared/
+cloudflared*.json
