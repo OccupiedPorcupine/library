@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { buildApp } from "../src/app.js";
-import { epub, testConfig } from "./metadata.test.js";
+import { epub, testConfig } from "./helpers.js";
 
 /** A fake OpenAI endpoint: answers by schema name and records what it was sent. */
 function fakeOpenAi(answers: { meta?: object; sort?: (body: { shelves: { id: string }[]; books: { id: string }[] }) => object }) {

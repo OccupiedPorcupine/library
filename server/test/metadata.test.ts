@@ -8,31 +8,7 @@ import { createCanvas } from "@napi-rs/canvas";
 import { buildApp } from "../src/app.js";
 import type { Config } from "../src/config.js";
 import { isSameBook } from "../src/metadata/online.js";
-
-export function testConfig(): Config {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "library-test-"));
-  return {
-    port: 0,
-    host: "127.0.0.1",
-    dataDir: dir,
-    dbPath: path.join(dir, "library.db"),
-    webDist: path.join(dir, "no-web"),
-    metadataOnline: false,
-    googleBooksApiKey: undefined,
-    openai: { apiKey: undefined, model: "test-model", baseUrl: "https://ai.test/v1" },
-    aiAutoShelve: true,
-    maxUploadBytes: 50 * 1024 * 1024,
-    storage: { driver: "local", localPath: path.join(dir, "books"), s3: {} as Config["storage"]["s3"] },
-  };
-}
-
-export async function epub(title: string, author: string, extra = ""): Promise<Buffer> {
-  const z = new JSZip();
-  z.file("mimetype", "application/epub+zip", { compression: "STORE" });
-  z.file("META-INF/container.xml", `<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>`);
-  z.file("content.opf", `<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>${title}</dc:title><dc:creator>${author}</dc:creator>${extra}</metadata><manifest/><spine/></package>`);
-  return z.generateAsync({ type: "nodebuffer" });
-}
+import { epub, testConfig } from "./helpers.js";
 
 const jpeg = async (w: number, h: number) => Buffer.from(await createCanvas(w, h).encode("jpeg", 80));
 
@@ -152,6 +128,26 @@ test("user cover upload", async () => {
     const img = await app.inject({ url: d.coverUrl! });
     assert.equal(img.headers["content-type"], "image/jpeg");
     await assert.rejects(library.setUserCover(book.id, Buffer.from("not an image")), /JPEG/);
+  } finally {
+    await app.close();
+  }
+});
+
+test("watermarks and URLs in file metadata are ignored, and old junk is cleaned on startup", async () => {
+  const { app, library, db } = await buildApp(testConfig(), { logger: false });
+  try {
+    const { book } = await library.addBook("Computer Networking.epub", await epub("Www.Yutou.Org", "Www.Yutou.Org"));
+    let d = library.getDetail(book.id);
+    assert.equal(d.title, "Computer Networking");
+    assert.equal(d.sources.title, "filename");
+    assert.equal(d.author, null);
+
+    // A book stored before the filter existed.
+    db.prepare("UPDATE books SET author = 'www.example.com', meta_sources = json_set(meta_sources, '$.author', 'file'), meta_checked_at = 'x' WHERE id = ?").run(book.id);
+    assert.equal(library.cleanJunk(), 1);
+    d = library.getDetail(book.id);
+    assert.equal(d.author, null);
+    assert.equal(d.metaCheckedAt, null, "queued for another lookup");
   } finally {
     await app.close();
   }
