@@ -1,8 +1,8 @@
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { SettingsMenu } from "./components/SettingsMenu";
 import { ShelfIndex } from "./components/ShelfIndex";
 import { ShelfRow } from "./components/ShelfRow";
 import { api, type Book, type LibraryOverview } from "./lib/api";
-import { getTheme, setTheme, type ThemeChoice } from "./lib/theme";
 
 const UNSHELVED = "unshelved";
 
@@ -147,13 +147,7 @@ export function App() {
 }
 
 function TopBar({ query, onQuery, onUpload }: { query: string; onQuery: (q: string) => void; onUpload: (f: File[]) => void }) {
-  const [theme, setThemeState] = useState<ThemeChoice>(getTheme);
   const fileRef = useRef<HTMLInputElement>(null);
-  const cycle = () => {
-    const next: ThemeChoice = theme === "system" ? "light" : theme === "light" ? "dark" : "system";
-    setTheme(next);
-    setThemeState(next);
-  };
   return (
     <header className="topbar">
       <a className="brand" href="/">
@@ -168,9 +162,7 @@ function TopBar({ query, onQuery, onUpload }: { query: string; onQuery: (q: stri
         <input type="search" placeholder="Search books or authors" value={query} onChange={(e) => onQuery(e.target.value)} />
       </label>
       <div className="topbar__actions">
-        <button type="button" className="icon-btn" onClick={cycle} aria-label={`Theme: ${theme}`} title={`Theme: ${theme}`}>
-          <ThemeIcon theme={theme} />
-        </button>
+        <SettingsMenu />
         <button type="button" className="btn btn--primary btn--add" onClick={() => fileRef.current?.click()} aria-label="Add books">
           <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden>
             <path d="M7 2v10M2 7h10" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
@@ -221,28 +213,6 @@ function Logo() {
       <rect x="4" y="6" width="5" height="21" rx="1.2" fill="currentColor" opacity=".9" />
       <rect x="11" y="4" width="5" height="23" rx="1.2" fill="currentColor" opacity=".6" />
       <rect x="19" y="7" width="7" height="20" rx="1.2" fill="currentColor" opacity=".35" transform="rotate(-9 22.5 17)" />
-    </svg>
-  );
-}
-
-function ThemeIcon({ theme }: { theme: ThemeChoice }) {
-  if (theme === "dark")
-    return (
-      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden>
-        <path d="M13 9.5A5.5 5.5 0 0 1 6.5 3a5.5 5.5 0 1 0 6.5 6.5Z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-      </svg>
-    );
-  if (theme === "light")
-    return (
-      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden>
-        <circle cx="8" cy="8" r="3" fill="none" stroke="currentColor" strokeWidth="1.5" />
-        <path d="M8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.4 1.4M11.6 11.6 13 13M3 13l1.4-1.4M11.6 4.4 13 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      </svg>
-    );
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden>
-      <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M8 2a6 6 0 0 1 0 12Z" fill="currentColor" />
     </svg>
   );
 }

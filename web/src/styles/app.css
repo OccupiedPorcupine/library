@@ -729,3 +729,119 @@ input {
     font-size: 18px;
   }
 }
+
+/* ---------- Display settings ---------- */
+
+.settings {
+  position: relative;
+}
+.settings__panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 10px);
+  z-index: 30;
+  width: min(300px, calc(100vw - 32px));
+  padding: 14px;
+  border-radius: var(--radius-l);
+  border: 1px solid var(--hairline);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-3), var(--highlight-top);
+  transform-origin: top right;
+  animation: pop var(--med) var(--ease);
+}
+.settings__panel[hidden] {
+  display: none;
+}
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.97);
+  }
+}
+.settings__label {
+  margin: 0 0 8px;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.segmented {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  padding: 3px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-inset);
+  border: 1px solid var(--hairline);
+}
+.segmented button {
+  height: 30px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--ink-soft);
+  font-size: 13px;
+  font-weight: 550;
+  cursor: pointer;
+  transition: background var(--fast), color var(--fast);
+}
+.segmented button.is-on {
+  background: var(--surface-raised);
+  color: var(--ink);
+  box-shadow: var(--shadow-1);
+}
+.switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--hairline);
+  cursor: pointer;
+}
+.switch-row__title {
+  display: block;
+  font-size: 14px;
+  font-weight: 550;
+}
+.switch-row__hint {
+  display: block;
+  font-size: 12.5px;
+  color: var(--ink-faint);
+  line-height: 1.4;
+}
+.switch {
+  appearance: none;
+  flex: none;
+  position: relative;
+  width: 40px;
+  height: 24px;
+  margin: 0;
+  border-radius: var(--radius-pill);
+  background: var(--hairline-strong);
+  cursor: pointer;
+  transition: background var(--med) var(--ease);
+}
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  transition: transform var(--med) var(--ease);
+}
+.switch:checked {
+  background: var(--accent);
+}
+.switch:checked::after {
+  transform: translateX(16px);
+}
+
+/* Progress dimming turned off in settings. */
+:root[data-dim="off"] .book__light {
+  opacity: 0;
+}
